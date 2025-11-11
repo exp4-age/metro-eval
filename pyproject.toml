@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools"]
+requires = ["setuptools", "numpy", "cython"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -20,9 +20,14 @@ classifiers = [
     "Intended Audience :: Science/Research",
 ]
 dependencies = [
+    "cython>=3.2.0",
     "h5py>=3.13.0",
     "numpy>=1.21",
 ]
+
+[project.scripts]
+metro2hdf = "metro_eval.data.metro2hdf:main"
+sort_events = "metro_eval.data.sort_events:main"
 
 [project.optional-dependencies]
 dev = [
@@ -45,6 +50,9 @@ GitHub = "https://github.com/exp4-age/metro-eval"
 
 [tool.setuptools.dynamic]
 version = {attr = "metro_eval.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.ruff]
 line-length = 79

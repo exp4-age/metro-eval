@@ -6,4 +6,6 @@ docs/_notebooks/.ipynb_checkpoints/
 docs/_build/
 .virtual_documents/
 build/
+*.so
+*.c
 uv.lock

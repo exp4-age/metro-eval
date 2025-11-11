@@ -180,6 +180,10 @@ def load_measurement(
             elif step_key in cache[data_key][scan_key]:
                 return cache[data_key][scan_key][step_key]
 
+            else:
+                errmsg = f"Could not find {step_key} in {num}"
+                raise KeyError(errmsg)
+
         with h5py.File(data_file, "r") as h5f:
             if contains_sorted_events(h5f):
                 data = load_sorted_events(h5f, data_key, scan_key=scan_key)
@@ -331,9 +335,7 @@ def load_sorted_events(
 
     for step_key, step_group in h5f[scan_key].items():
         if data_key not in step_group:
-            wrnmsg = (
-                f"Could not find {scan_key}/{step_key}/{data_key} in {h5f.filename}"
-            )
+            wrnmsg = f"Could not find {scan_key}/{step_key}/{data_key} in {h5f.filename}"
             warnings.warn(wrnmsg, stacklevel=1)
             continue
 
