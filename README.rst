@@ -1,16 +1,16 @@
 metro-eval
 ==========
 
-.. image:: https://img.shields.io/badge/version-dev-blue
+.. |version| image:: https://img.shields.io/badge/version-dev-blue
    :target: https://img.shields.io/badge/version-dev-blue
-.. image:: https://img.shields.io/github/license/exp4-age/metro-eval
+.. |license| image:: https://img.shields.io/github/license/exp4-age/metro-eval
    :alt: GitHub License
 
-Evaluation utilities for metro data
+|version| |license|
 
 Installation
 ------------
 
 Install with ::
 
-    pip install git+https://github.com/exp4-age/metro-eval
+    pip install git+https://github.com/exp4-age/metro-eval@main
