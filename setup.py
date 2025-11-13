@@ -6,6 +6,7 @@ sorting_tdc = Extension(
     name="metro_eval.data.sorting_tdc",
     sources=["src/metro_eval/data/sorting_tdc.pyx"],
     include_dirs=[numpy.get_include()],
+    optional=True,
 )
 
 setup(ext_modules=cythonize([sorting_tdc]))
