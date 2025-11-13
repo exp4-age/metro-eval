@@ -13,7 +13,9 @@ if TYPE_CHECKING:
 
 
 def load_all(
-    glob_dir: str | Path = ".", data_dir: str | None = None
+    glob_dir: str | Path = ".",
+    data_dir: str | None = None,
+    pattern: str = "[2-9][0-9][0-9][0-9]-[0-1][1-9]-*-*",
 ) -> dict[str, dict[str, callable]]:
     """Load all beamtimes in the specified directory.
 
@@ -38,8 +40,6 @@ def load_all(
         glob_dir = Path(glob_dir)
 
     beamtimes = {}
-
-    pattern = "[2-9][0-9][0-9][0-9]-[0-1][1-9]-*-*"
 
     if glob_dir.match(pattern):
         matches = [glob_dir]
