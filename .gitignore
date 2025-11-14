@@ -7,5 +7,4 @@ docs/_build/
 .virtual_documents/
 build/
 *.so
-*.c
 uv.lock
