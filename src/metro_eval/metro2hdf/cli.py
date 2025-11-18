@@ -3,6 +3,8 @@ from pathlib import Path
 import h5py
 import numpy as np
 
+from metro_eval.metro2hdf.index_runs import group_runs
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -34,6 +36,15 @@ def txt_to_hdf5(
             )
 
 
+def index_files(glob_pattern: str):
+    matches = list(Path.cwd().glob(glob_pattern))
+
+    if len(matches) == 0:
+        raise FileNotFoundError()
+
+    runs = group_runs(matches)
+
+
 def run() -> None:
     args = parser.parse_args()
 
@@ -46,7 +57,6 @@ def run() -> None:
     compression_opts = args.compression
 
     try:
-        from metro_eval.metro2hdf.glob_metro_files import group_runs
         from metro_eval.metro2hdf.index_ascii_file_cy import index_ascii_file
 
     except ImportError:

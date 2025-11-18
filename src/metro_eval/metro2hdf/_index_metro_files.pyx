@@ -1,4 +1,5 @@
 # cython: language_level=3
+from pathlib import Path
 from libc.stdio cimport FILE, fopen, fclose, fgets
 from libc.string cimport strncmp, strlen
 from libc.stdlib cimport atoi, atof
@@ -6,6 +7,12 @@ cimport cython
 
 cdef extern from "string.h":
     char *strtok(char *str, const char *delim)
+    char *strncpy(char *dest, const char *src, size_t n)
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+        
+
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -15,16 +22,11 @@ def index_ascii_file(str filename):
     cdef char line_copy[8192]
     cdef char* token
     cdef long long line_num = 0
-    cdef long long data_start_line = -1
-    cdef long long data_row_count = 0
     cdef int scan_idx
     cdef double step_val
-    cdef bint in_data_section = False
 
-    cdef str current_scan = None
-    cdef str current_step = None
-    cdef str prev_scan = None
-    cdef str prev_step = None
+    cdef str scan = None
+    cdef str step = None
 
     result = {}
 
@@ -94,5 +96,3 @@ def index_ascii_file(str filename):
     finally:
         fclose(f)
 
-cdef extern from "string.h":
-    char *strncpy(char *dest, const char *src, size_t n)
