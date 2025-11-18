@@ -22,10 +22,11 @@ classifiers = [
 dependencies = [
     "h5py>=3.13.0",
     "numpy>=1.21",
+    "rich>=14.2.0",
 ]
 
 [project.scripts]
-metro2hdf = "metro_eval.data.metro2hdf:main"
+metro2hdf = "metro_eval.metro2hdf.cli:run"
 sort_events = "metro_eval.data.sort_events:main"
 
 [project.optional-dependencies]

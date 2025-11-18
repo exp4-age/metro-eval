@@ -2,13 +2,33 @@ import argparse
 from pathlib import Path
 import h5py
 import numpy as np
-
-from metro_eval.metro2hdf.index_runs import group_runs
+from rich.live import Live
+from rich.table import Table
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from typing import TextIO
+
+
+def generate_table(runs: dict) -> Table:
+    table = Table()
+    table.add_column("run", justify="right", style="cyan", width=5)
+    table.add_column(
+        "status", style="magenta", max_width=50, width=50, no_wrap=True
+    )
+    table.add_column(
+        "progress", justify="center", style="green", min_width=9, width=9
+    )
+
+    for run_num, cols in runs.items():
+        table.add_row(
+            run_num,
+            cols.get("status", ""),
+            cols.get("progress", ""),
+        )
+
+    return table
 
 
 def txt_to_hdf5(
@@ -36,17 +56,61 @@ def txt_to_hdf5(
             )
 
 
-def index_files(glob_pattern: str):
-    matches = list(Path.cwd().glob(glob_pattern))
+def group_runs(
+    file_list: list[Path], live: Live | None = None
+) -> dict[str, list[str]]:
+    runs = {}
+    print_table = {}
 
-    if len(matches) == 0:
-        raise FileNotFoundError()
+    for file_path in file_list:
+        if not file_path.is_file():
+            continue
 
-    runs = group_runs(matches)
+        file_name = file_path.name
+        parts = file_name.split("_")
+
+        if len(parts) < 2:
+            continue
+
+        run_num = parts[0]
+
+        try:
+            int(run_num)
+
+        except ValueError:
+            continue
+
+        if run_num not in runs:
+            runs[run_num] = []
+
+            if live is not None:
+                print_table[run_num] = {}
+
+        runs[run_num].append(str(file_path.resolve()))
+
+        if live is not None:
+            n = len(runs[run_num])
+            print_table[run_num]["status"] = f"found file ...{parts[-1]}"
+            print_table[run_num]["progress"] = f"- / {n}"
+
+            live.update(generate_table(print_table))
+
+    if live is not None:
+        for run_num in print_table:
+            n = len(runs[run_num])
+            print_table[run_num]["status"] = f"found {n} files..."
+
+        live.update(generate_table(print_table))
+
+    return runs
+
+
+def index_files(runs: dict, num: str, live: Live | None = None):
+    pass
 
 
 def run() -> None:
-    args = parser.parse_args()
+    args = parser().parse_args()
 
     if isinstance(args.output_dir, str):
         output_dir = Path(args.output_dir)
@@ -56,52 +120,23 @@ def run() -> None:
 
     compression_opts = args.compression
 
-    try:
-        from metro_eval.metro2hdf.index_ascii_file_cy import index_ascii_file
+    with Live(None, refresh_per_second=4) as live:
+        verbose_live = live if args.verbose else None
 
-    except ImportError:
-        print("ERROR: Could not import required modules!")
-        return
+        live.console.print("glob'ing files...", end="")
+        matches = list(Path.cwd().glob(args.glob_str))
 
-    run_map = group_runs(args.glob_str)
+        if len(matches) == 0:
+            raise FileNotFoundError()
 
-    # matches = Path.cwd().glob(glob_str)
-    # for match in matches:
-    #    if not match.is_file():
-    #        continue
+        live.console.print("grouping runs...", end="")
+        runs = group_runs(matches, live=verbose_live)
 
-    if len(run_map) == 0:
-        print("No matching METRO files found, exiting!")
-        return
+        live.console.print("indexing files...", end="")
+        for run_num in runs:
+            index_files(runs, run_num, live=verbose_live)
 
-    for num, channel_files in run_map.items():
-        out_path = output_dir / f"{num}_data.h5"
-
-        if args.short_name:
-            out_path = output_dir / f"{num}.h5"
-
-        elif args.full_name:
-            for cf in channel_files:
-                if cf.endswith((".jpg", ".jpeg", ".png")):
-                    name = Path(cf).stem
-                    out_path = output_dir / f"{num}_{name}.h5"
-
-        if out_path.is_file() and not args.replace:
-            print("Found existing file, skipping!")
-            continue
-
-        with h5py.File(out_path, "w", driver=args.driver) as h5f:
-            h5f.attrs["number"] = num
-
-            for channel_file in channel_files:
-                match channel_file[channel_file.rfind(".") + 1 :]:
-                    case "txt":
-                        scans = index_ascii_file(channel_file)
-                        with open(channel_file, "r") as asciif:
-                            txt_to_hdf5(asciif, h5f, scans, compression_opts)
-
-                    case _:
-                        print("WARNING: Unknown file format, skipping!")
+        live.console.print("", end="")
 
 
 def parser() -> argparse.ArgumentParser:
