@@ -1,9 +1,14 @@
 import argparse
+import warnings
+import os
 from pathlib import Path
+from datetime import datetime
 import h5py
 import numpy as np
 from rich.live import Live
 from rich.table import Table
+
+from metro_eval.metro2hdf.index_ascii import index_ascii_file
 
 from typing import TYPE_CHECKING
 
@@ -31,6 +36,7 @@ def generate_table(runs: dict) -> Table:
     return table
 
 
+"""
 def txt_to_hdf5(
     asciif: TextIO, h5f: h5py.File, scans: dict, compression_opts: int
 ) -> None:
@@ -54,19 +60,19 @@ def txt_to_hdf5(
                 compression="gzip",
                 compression_opts=compression_opts,
             )
+"""
 
 
 def group_runs(
     file_list: list[Path], live: Live | None = None
 ) -> dict[str, list[str]]:
     runs = {}
-    print_table = {}
 
     for file_path in file_list:
         if not file_path.is_file():
             continue
 
-        file_name = file_path.name
+        file_name = file_path.stem
         parts = file_name.split("_")
 
         if len(parts) < 2:
@@ -81,32 +87,202 @@ def group_runs(
             continue
 
         if run_num not in runs:
-            runs[run_num] = []
+            runs[run_num] = {"files": [], "name": "_".join(parts[1:])}
 
-            if live is not None:
-                print_table[run_num] = {}
+        else:
+            name = "_".join(parts[1:])
+            runs[run_num]["name"] = os.path.commonprefix(
+                [runs[run_num]["name"], name]
+            )
 
-        runs[run_num].append(str(file_path.resolve()))
+        runs[run_num]["files"].append(str(file_path.resolve()))
 
         if live is not None:
-            n = len(runs[run_num])
-            print_table[run_num]["status"] = f"found file ...{parts[-1]}"
-            print_table[run_num]["progress"] = f"- / {n}"
+            n = len(runs[run_num]["files"])
+            runs[run_num]["status"] = f"found file ...{parts[-1]}"
+            runs[run_num]["progress"] = f"- / {n}"
 
-            live.update(generate_table(print_table))
+            live.update(generate_table(runs))
+
+    for run_num in runs:
+        try:
+            name_parts = runs[run_num]["name"].split("_")
+            runs[run_num]["date"] = datetime.strptime(name_parts[-2], "%d%m%Y")
+            runs[run_num]["time"] = datetime.strptime(name_parts[-1], "%H%M%S")
+
+        except Exception:
+            runs[run_num]["date"] = None
+            runs[run_num]["time"] = None
+
+        else:
+            runs[run_num]["name"] = "_".join(name_parts[:-2])
 
     if live is not None:
-        for run_num in print_table:
-            n = len(runs[run_num])
-            print_table[run_num]["status"] = f"found {n} files..."
+        for run_num in runs:
+            n = len(runs[run_num]["files"])
+            name = runs[run_num]["name"]
+            runs[run_num]["status"] = f"{name} with {n} files"
 
-        live.update(generate_table(print_table))
+        live.update(generate_table(runs))
 
     return runs
 
 
-def index_files(runs: dict, num: str, live: Live | None = None):
-    pass
+def process_ascii_file(file_path: str, h5f: h5py.File, compr_lvl: int):
+    index = index_ascii_file(file_path)
+
+    if "Name" not in index["attrs"]:
+        return "missing attribute 'Name'"
+
+    channel = index["attrs"]["Name"]
+    channel_grp = h5f.require_group(channel)
+
+    if "Shape" not in index["attrs"]:
+        return "missing attribute 'Shape'"
+
+    shape = int(index["attrs"]["Shape"])
+
+    if shape == 0:
+        empty_step = np.full(1, np.nan)
+
+    else:
+        empty_step = np.full((1, shape), np.nan)
+
+    for attr, val in index["attrs"].items():
+        channel_grp.attrs[attr] = val
+
+    for scan_idx, scan in index["scans"].items():
+        if "steps" not in scan:
+            skip_header = scan["start"]
+
+            if "end" in scan:
+                max_rows = scan["end"] - skip_header
+
+            else:
+                max_rows = None
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=UserWarning)
+
+                data = np.genfromtxt(
+                    file_path,
+                    skip_header=skip_header,
+                    max_rows=max_rows,
+                )
+
+            if data.size == 0:
+                print(
+                    f"found empty scan in {h5f.attrs['number']}:",
+                    f"channel {channel}, scan: {scan_idx}",
+                )
+                data = empty_step
+
+            if data.size == 1:
+                compression = {}
+
+            else:
+                compression = {
+                    "compression": "gzip",
+                    "compression_opts": compr_lvl,
+                }
+
+            channel_grp.create_dataset(
+                scan_idx,
+                shape=data.shape,
+                dtype=np.float64,
+                data=data,
+                **compression,
+            )
+
+            continue
+
+        scan_grp = channel_grp.require_group(scan_idx)
+
+        for step_idx in scan["steps"]:
+            skip_header = scan["steps"][step_idx]["start"]
+
+            if "end" in scan["steps"][step_idx]:
+                max_rows = scan["steps"][step_idx]["end"] - skip_header
+
+            else:
+                max_rows = None
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=UserWarning)
+
+                data = np.genfromtxt(
+                    file_path,
+                    skip_header=skip_header,
+                    max_rows=max_rows,
+                )
+
+            step_val = scan["steps"][step_idx]["value"]
+
+            if data.size == 0:
+                num = h5f.attrs["number"]
+                print(
+                    f"found empty step in {num}: channel {channel},",
+                    f"scan: {scan_idx}, step: {step_val}",
+                )
+                data = empty_step
+
+            if data.size == 1:
+                compression = {}
+
+            else:
+                compression = {
+                    "compression": "gzip",
+                    "compression_opts": compr_lvl,
+                }
+
+            scan_grp.create_dataset(
+                step_val,
+                shape=data.shape,
+                dtype=np.float64,
+                data=data,
+                **compression,
+            )
+
+
+def process_run(
+    run_num: str,
+    runs: dict,
+    h5f: h5py.File,
+    compr_lvl: int,
+    live: Live | None = None,
+):
+    skipped = []
+
+    for i, file_path in enumerate(runs[run_num]["files"], 1):
+        if live is not None:
+            suffix = file_path.rsplit("_", 1)[-1]
+            runs[run_num]["status"] = f"processing file {suffix}"
+            live.update(generate_table(runs))
+
+        if file_path.endswith(".txt"):
+            process_ascii_file(file_path, h5f, compr_lvl)
+
+        elif live is not None:
+            suffix = file_path.rsplit(".", 1)[-1]
+            skipped.append(suffix)
+            runs[run_num]["status"] = (
+                f"skipping unsupported file type .{suffix}"
+            )
+            live.update(generate_table(runs))
+
+        if live is not None:
+            progress_str = f"{i} / {len(runs[run_num]['files'])}"
+            runs[run_num]["progress"] = progress_str
+            live.update(generate_table(runs))
+
+    if live is not None:
+        status = "done"
+
+        if len(skipped) > 0:
+            status += f" (skipped: {', '.join(skipped)})"
+
+        runs[run_num]["status"] = status
+        live.update(generate_table(runs))
 
 
 def run() -> None:
@@ -118,7 +294,7 @@ def run() -> None:
     else:
         output_dir = args.output_dir
 
-    compression_opts = args.compression
+    compr_lvl = args.compression
 
     with Live(None, refresh_per_second=4) as live:
         verbose_live = live if args.verbose else None
@@ -132,9 +308,40 @@ def run() -> None:
         live.console.print("grouping runs...", end="")
         runs = group_runs(matches, live=verbose_live)
 
-        live.console.print("indexing files...", end="")
-        for run_num in runs:
-            index_files(runs, run_num, live=verbose_live)
+        live.console.print("process runs...", end="")
+        for run_num, run in runs.items():
+            file_name = run_num
+
+            if not args.short_name:
+                file_name += "_" + run["name"]
+
+                if args.full_name:
+                    if run["date"] is not None:
+                        file_name += "_" + run["date"].strftime("%d%m%Y")
+
+                    if run["time"] is not None:
+                        file_name += "_" + run["time"].strftime("%H%M%S")
+
+            output_path = output_dir / (file_name + ".h5")
+
+            if output_path.is_file() and not args.replace:
+                if verbose_live is not None:
+                    runs[run_num]["status"] = "skipping existing file..."
+                    verbose_live.update(generate_table(runs))
+
+                continue
+
+            with h5py.File(output_path, "w") as h5f:
+                h5f.attrs["number"] = run_num
+                h5f.attrs["name"] = run["name"]
+
+                if run["date"] is not None:
+                    h5f.attrs["date"] = run["date"].strftime("%Y-%m-%d")
+
+                if run["time"] is not None:
+                    h5f.attrs["time"] = run["time"].strftime("%H:%M:%S")
+
+                process_run(run_num, runs, h5f, compr_lvl, live=verbose_live)
 
         live.console.print("", end="")
 
@@ -182,17 +389,17 @@ def parser() -> argparse.ArgumentParser:
     shortening_group = cli.add_mutually_exclusive_group()
 
     shortening_group.add_argument(
-        "--shorter-name",
-        dest="shorter_name",
+        "--short-name",
+        dest="short_name",
         action="store_true",
-        help="use only number and name as filename for the output files",
+        help="use only number as filename for the output files",
     )
 
     shortening_group.add_argument(
-        "--shortest-name",
-        dest="shortest_name",
+        "--full-name",
+        dest="full_name",
         action="store_true",
-        help="use only the number as filename for the output files",
+        help="use full name with datetime as filename for the output files",
     )
 
     hdf_group = cli.add_argument_group("HDF5 options")

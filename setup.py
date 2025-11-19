@@ -9,4 +9,10 @@ sorting_tdc = Extension(
     optional=True,
 )
 
-setup(ext_modules=cythonize([sorting_tdc]))
+index_ascii = Extension(
+    name="metro_eval.metro2hdf.index_ascii",
+    sources=["src/metro_eval/metro2hdf/index_ascii.py"],
+    optional=True,
+)
+
+setup(ext_modules=cythonize([sorting_tdc, index_ascii]))

@@ -20,6 +20,7 @@ classifiers = [
     "Intended Audience :: Science/Research",
 ]
 dependencies = [
+    "cython>=3.2.1",
     "h5py>=3.13.0",
     "numpy>=1.21",
     "rich>=14.2.0",
