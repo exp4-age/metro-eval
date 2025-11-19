@@ -18,7 +18,7 @@ except ImportError:
     cython = _fake_cython()
 
 
-def index_ascii_file(file_path: str) -> dict:
+def index_ascii(file_path: str) -> dict:
     scans: dict = {}
     result: dict = {"attrs": {}}
     line: str

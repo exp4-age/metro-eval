@@ -10,8 +10,8 @@ sorting_tdc = Extension(
 )
 
 index_ascii = Extension(
-    name="metro_eval.metro2hdf.index_ascii",
-    sources=["src/metro_eval/metro2hdf/index_ascii.py"],
+    name="metro_eval.metro2hdf._index_ascii",
+    sources=["src/metro_eval/metro2hdf/_index_ascii.py"],
     optional=True,
 )
 
