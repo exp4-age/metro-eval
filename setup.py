@@ -3,8 +3,8 @@ from Cython.Build import cythonize
 import numpy
 
 sorting_tdc = Extension(
-    name="metro_eval.data.sorting_tdc",
-    sources=["src/metro_eval/data/sorting_tdc.pyx"],
+    name="metro_eval.sort_events.sorting_tdc",
+    sources=["src/metro_eval/sort_events/sorting_tdc.pyx"],
     include_dirs=[numpy.get_include()],
     optional=True,
 )

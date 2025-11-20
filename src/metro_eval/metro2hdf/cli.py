@@ -1,4 +1,6 @@
 import argparse
+import warnings
+import os
 from pathlib import Path
 import h5py
 from rich.live import Live
@@ -9,22 +11,35 @@ from ._process_hptdc import process_hptdc
 from ._group_runs import group_runs
 
 
-def generate_table(runs: dict) -> Table:
-    table = Table()
-    table.add_column("run", justify="right", style="cyan", width=5)
-    table.add_column(
-        "status", style="magenta", max_width=75, width=75, no_wrap=True
-    )
-    table.add_column(
-        "progress", justify="center", style="green", min_width=9, width=9
-    )
+def generate_table(
+    runs: dict,
+    start: int = 0,
+    max_rows: int | None = None,
+) -> Table:
+    table = Table(expand=True)
+    table.add_column("run", justify="right", style="cyan", ratio=1)
+    table.add_column("status", style="magenta", ratio=8)
+    table.add_column("progress", justify="center", style="green", ratio=1)
+
+    row_number = 0
+    row_count = 0
 
     for run_num, cols in runs.items():
+        row_number += 1
+
+        if row_number < start:
+            continue
+
+        if max_rows is not None and row_count >= max_rows:
+            break
+
         table.add_row(
             run_num,
             cols.get("status", ""),
             cols.get("progress", ""),
         )
+
+        row_count += 1
 
     return table
 
@@ -35,34 +50,61 @@ def process_run(
     h5f: h5py.File,
     args: argparse.Namespace,
     live: Live,
+    start: int,
+    max_rows: int | None,
 ) -> None:
     skipped = []
+    empty = {}
+    tdc_warnings = ""
+
     progress = 0
     total = len(runs[num]["channels"])
 
     for channel, file_path in runs[num]["channels"].items():
         if args.verbose:
             runs[num]["status"] = f"processing channel {channel}..."
-            live.update(generate_table(runs))
+            live.update(generate_table(runs, start=start, max_rows=max_rows))
 
         channel_grp = h5f.require_group(channel)
 
         if file_path.endswith(".txt"):
-            process_ascii(
-                file_path,
-                channel_grp,
-                compression=args.compression,
-            )
+            with warnings.catch_warnings(record=True) as wrns:
+                warnings.simplefilter("always")
+
+                process_ascii(
+                    file_path,
+                    channel_grp,
+                    compression=args.compression,
+                )
+
+                for w in wrns:
+                    if args.verbose:
+                        if channel not in empty:
+                            empty[channel] = 0
+
+                        empty[channel] += 1
+
+                    else:
+                        print(w.message)
 
         elif file_path.endswith(".tdc"):
-            process_hptdc(
-                file_path,
-                channel_grp,
-                chunk_size=args.hptdc_chunk_size,
-                ignore_tables=args.hptdc_ignore_tables,
-                word_format=args.hptdc_word_format,
-                compression=args.compression,
-            )
+            with warnings.catch_warnings(record=True) as wrns:
+                warnings.simplefilter("always")
+
+                process_hptdc(
+                    file_path,
+                    channel_grp,
+                    chunk_size=args.hptdc_chunk_size,
+                    ignore_tables=args.hptdc_ignore_tables,
+                    word_format=args.hptdc_word_format,
+                    compression=args.compression,
+                )
+
+                for w in wrns:
+                    tdc_warnings += f"{w.message} "
+
+                if not args.verbose and len(wrns) > 0:
+                    print(f"HPTDC warnings in {file_path}: {tdc_warnings}")
 
         elif args.verbose:
             suffix = file_path.rsplit(".", 1)[-1]
@@ -72,7 +114,7 @@ def process_run(
 
         if args.verbose:
             runs[num]["progress"] = f"{progress} / {total}"
-            live.update(generate_table(runs))
+            live.update(generate_table(runs, start=start, max_rows=max_rows))
 
     if args.verbose:
         status = "done"
@@ -80,8 +122,14 @@ def process_run(
         if len(skipped) > 0:
             status += f" (skipped: {', '.join(skipped)})"
 
+        for channel, count in empty.items():
+            status += f" ({count} empty steps in {channel})"
+
+        if tdc_warnings != "":
+            status += f" (HPTDC warnings: {tdc_warnings.strip()})"
+
         runs[num]["status"] = status
-        live.update(generate_table(runs))
+        live.update(generate_table(runs, start=start, max_rows=max_rows))
 
 
 def run() -> None:
@@ -106,7 +154,13 @@ def run() -> None:
         if args.verbose:
             live.update(generate_table(runs))
 
+        row_number = 0
+        max_rows = max(os.get_terminal_size().lines - 8, 8)
+
         for num, run in runs.items():
+            row_number += 1
+            start = row_number - (row_number % max_rows)
+
             attrs = run["attrs"]
 
             # construct output file name
@@ -127,7 +181,9 @@ def run() -> None:
             if file_path.is_file() and not args.replace:
                 if args.verbose:
                     runs[num]["status"] = "hdf5 exists: skipping..."
-                    live.update(generate_table(runs))
+                    live.update(
+                        generate_table(runs, start=start, max_rows=max_rows)
+                    )
 
                 continue
 
@@ -141,7 +197,10 @@ def run() -> None:
                 if "time" in attrs:
                     h5f.attrs["time"] = attrs["time"].strftime("%H:%M:%S")
 
-                process_run(num, runs, h5f, args, live)
+                process_run(num, runs, h5f, args, live, start, max_rows)
+
+        if args.verbose:
+            live.update(generate_table(runs))
 
 
 def parser() -> argparse.ArgumentParser:
