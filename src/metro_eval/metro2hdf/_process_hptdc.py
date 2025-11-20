@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 import collections
 import os
 import struct
@@ -64,7 +65,8 @@ def rebuild_hptdc_tables(
     read_length,
     HptdcStepEntry=HptdcStepEntry64,
 ):
-    print("scanning for markers...", end="")
+    wrnmsg = "scanning for markers..."
+    warnings.warn(wrnmsg, UserWarning, stacklevel=1)
 
     # First we have to get "aligned" to the begin of this file's
     # data section, which always consists of a scan marker. So
@@ -83,7 +85,8 @@ def rebuild_hptdc_tables(
             break
 
     if data_begin < 0:
-        print("WARNING: Could not find first scan marker, skipping!")
+        wrnmsg = "WARNING: Could not find first scan marker, skipping!"
+        warnings.warn(wrnmsg, UserWarning, stacklevel=1)
         return False
 
     fp.seek(data_begin)
@@ -232,13 +235,15 @@ def process_hptdc(
     ignore_tables: bool = False,
     compression: int = 4,
 ) -> None:
-    # h5f.attrs["Type"] = "hptdc"
     compress_args = {"compression": "gzip", "compression_opts": compression}
+
+    channel_grp.attrs["Type"] = "hptdc"
 
     with open(file_path, "rb") as fp:
         # First check for the magic code
         if fp.read(5) != b"HPTDC":
-            print("WARNING: Invalid magic code, skipping!")
+            wrnmsg = "WARNING: Invalid magic code, skipping!"
+            warnings.warn(wrnmsg, UserWarning, stacklevel=1)
             return False
 
         # Starting in around October 2017, a reworked (and extendable)
@@ -309,7 +314,8 @@ def process_hptdc(
             )
 
         else:
-            print("FATAL: Unknown TDC mode encountered, skipping!")
+            wrnmsg = "FATAL: Unknown TDC mode encountered, skipping!"
+            warnings.warn(wrnmsg, UserWarning, stacklevel=1)
             return False
 
         channel_grp.attrs["Mode"] = mode
@@ -330,12 +336,12 @@ def process_hptdc(
                     data_size = step_table[step_idx]["data_size"]
 
                     if data_size < 0 or data_size % in_dtype.itemsize != 0:
-                        print(
+                        wrnmsg = (
                             "WARNING: Invalid data_size entry {0} for step "
                             "{1}, ignoring "
-                            "tables...".format(data_size, step_idx),
-                            end="",
+                            "tables...".format(data_size, step_idx)
                         )
+                        warnings.warn(wrnmsg, UserWarning, stacklevel=1)
 
                         step_table = None
                         break
@@ -349,11 +355,11 @@ def process_hptdc(
             step_tables = None
 
             if scan_table_offset == 0 and not ignore_tables:
-                print(
+                wrnmsg = (
                     "WARNING: Tables are probably corrupted, trying to "
-                    "rebuild...",
-                    end="",
+                    "rebuild..."
                 )
+                warnings.warn(wrnmsg, UserWarning, stacklevel=1)
 
         if step_tables is None:
             # If the scan_table_offset is zero, the file was not closed
@@ -382,7 +388,8 @@ def process_hptdc(
                 try:
                     step_value = step_entry["value"].decode("ascii")
                 except ValueError:
-                    print("WARNING: Corrupted step table, skipping!")
+                    wrnmsg = "WARNING: Corrupted step table, skipping!"
+                    warnings.warn(wrnmsg, UserWarning, stacklevel=1)
                     return False
 
                 fp.seek(step_entry["data_offset"])
@@ -391,7 +398,8 @@ def process_hptdc(
                 data_len = step_entry["data_size"] - len(step_marker)
 
                 if data_len < 0:
-                    print("WARNING: Corrupted step table, skipping!")
+                    wrnmsg = "WARNING: Corrupted step table, skipping!"
+                    warnings.warn(wrnmsg, UserWarning, stacklevel=1)
                     return False
 
                 elif data_len == 0:
@@ -436,11 +444,11 @@ def process_hptdc(
             fp.seek(param_table_offset)
         except OSError:
             # Usually the header is damaged, so skip the param table
-            print(
+            wrnmsg = (
                 "WARNING: Invalid offset for parameters table in header, "
-                "probably not present in dataset...",
-                end="",
+                "probably not present in dataset..."
             )
+            warnings.warn(wrnmsg, UserWarning, stacklevel=1)
             return True
 
         # We read one byte less to omit the last newline character
@@ -449,11 +457,11 @@ def process_hptdc(
                 fp.read(param_table_size - 1).decode("ascii").split("\n")
             )
         except Exception:
-            print(
+            wrnmsg = (
                 "WARNING: Corrupted parameters table, not present in "
-                "dataset...",
-                end="",
+                "dataset..."
             )
+            warnings.warn(wrnmsg, UserWarning, stacklevel=1)
             return True
         else:
             if param_lines and param_lines[0]:
@@ -461,6 +469,7 @@ def process_hptdc(
                     key, value = line.split(" ")
                     channel_grp.attrs[key] = value
             else:
-                print("WARNING: Empty parameters table...", end="")
+                wrnmsg = "WARNING: Empty parameters table..."
+                warnings.warn(wrnmsg, UserWarning, stacklevel=1)
 
     return True

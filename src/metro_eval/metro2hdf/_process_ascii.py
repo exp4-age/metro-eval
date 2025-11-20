@@ -15,6 +15,8 @@ def process_ascii(
         "compression_opts": compression,
     }
 
+    wrnmsg = f"WARNING: Found empty in {file_path}!"
+
     index = index_ascii(file_path)
 
     for attr, val in index["attrs"].items():
@@ -26,6 +28,10 @@ def process_ascii(
 
             if "end" in scan:
                 max_rows = scan["end"] - skip_header
+
+                if max_rows <= 0:
+                    warnings.warn(wrnmsg, UserWarning, stacklevel=1)
+                    continue
 
             else:
                 max_rows = None
@@ -40,7 +46,7 @@ def process_ascii(
                 )
 
             if data.size == 0:
-                print("empty scan")
+                warnings.warn(wrnmsg, UserWarning, stacklevel=1)
                 continue
 
             if data.size < 128:
@@ -67,6 +73,10 @@ def process_ascii(
             if "end" in scan["steps"][step_idx]:
                 max_rows = scan["steps"][step_idx]["end"] - skip_header
 
+                if max_rows <= 0:
+                    warnings.warn(wrnmsg, UserWarning, stacklevel=1)
+                    continue
+
             else:
                 max_rows = None
 
@@ -82,7 +92,7 @@ def process_ascii(
             step_val = scan["steps"][step_idx]["value"]
 
             if data.size == 0:
-                print("empty step")
+                warnings.warn(wrnmsg, UserWarning, stacklevel=1)
                 continue
 
             if data.size < 128:

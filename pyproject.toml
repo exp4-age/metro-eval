@@ -27,8 +27,8 @@ dependencies = [
 ]
 
 [project.scripts]
-metro2hdf = "metro_eval.metro2hdf.main:run"
-sort_events = "metro_eval.data.sort_events:main"
+metro2hdf = "metro_eval.metro2hdf.cli:run"
+sort_events = "metro_eval.sort_events.cli:main"
 
 [project.optional-dependencies]
 dev = [

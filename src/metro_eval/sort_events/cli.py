@@ -110,10 +110,12 @@ def run(
 
     # Try to import the Cython version
     try:
-        from metro_eval.data.sorting_tdc import analyze_words_native
+        from metro_eval.sort_events.sorting_tdc import analyze_words_native
+
     except ImportError:
         print("(using pure python implementation)")
         analyze_words = analyze_words_python
+
     else:
         print("(using native implementation)")
         analyze_words = analyze_words_native

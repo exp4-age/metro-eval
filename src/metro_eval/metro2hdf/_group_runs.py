@@ -48,18 +48,15 @@ def group_runs(
         sorted_runs[num] = {"attrs": {}, "channels": {}}
 
         # extract common name prefix for the run
-        name = (
-            os.path.commonprefix([f.stem for f in runs[num]])
-            .rstrip("_")
-            .replace(f"{num}_", "")
-        )
+        name = os.path.commonprefix(
+            [f.stem[len(num) + 1 :] for f in runs[num]]
+        ).rstrip("_")
 
         sorted_runs[num]["attrs"]["name"] = name
 
         # extract channel names
         for file_path in runs[num]:
-            channel = file_path.stem.replace(f"{num}", "")
-            channel = channel.replace(f"{name}", "")
+            channel = file_path.stem[len(num) + len(name) + 2 :]
             channel = channel.strip("_")
 
             if channel == "":
