@@ -6,10 +6,7 @@ from datetime import datetime
 import numpy as np
 
 
-def group_runs(
-    file_list: list[Path],
-    verbose: bool = False,
-) -> dict:
+def group_runs(file_list: list[Path]) -> dict:
     runs = {}
 
     # group files by run number
@@ -78,12 +75,11 @@ def group_runs(
             sorted_runs[num]["attrs"]["time"] = time
             sorted_runs[num]["attrs"]["name"] = "_".join(parts[:-2])
 
-    if verbose:
-        for num in sorted_runs:
-            n = str(len(sorted_runs[num]["channels"]))
-            name = sorted_runs[num]["attrs"]["name"]
+    for num in sorted_runs:
+        n = str(len(sorted_runs[num]["channels"]))
+        name = sorted_runs[num]["attrs"]["name"]
 
-            sorted_runs[num]["status"] = f"found {name} with {n} files"
-            sorted_runs[num]["progress"] = f"0 / {n}"
+        sorted_runs[num]["status"] = f"found {name} with {n} files"
+        sorted_runs[num]["progress"] = f"0 / {n}"
 
     return sorted_runs

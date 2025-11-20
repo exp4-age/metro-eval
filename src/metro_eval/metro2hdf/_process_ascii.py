@@ -1,4 +1,5 @@
 import warnings
+from pathlib import Path
 import h5py
 import numpy as np
 
@@ -15,7 +16,7 @@ def process_ascii(
         "compression_opts": compression,
     }
 
-    wrnmsg = f"WARNING: Found empty in {file_path}!"
+    wrnmsg = f"WARNING: Found empty in {Path(file_path).name}!"
 
     index = index_ascii(file_path)
 
