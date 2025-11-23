@@ -48,6 +48,12 @@ def spectrum(
     return hist_spectrum
 
 
+def calibrate_spectrum(calib: object, spec: callable) -> callable:
+    def calibrated_spectrum(bin_edges: ArrayLike):
+        det_bin_edges = calib.wl2pos(bin_edges)
+        return spec(det_bin_edges)
+
+
 def sum_spectra(
     spectra: list[callable],
 ) -> callable:
