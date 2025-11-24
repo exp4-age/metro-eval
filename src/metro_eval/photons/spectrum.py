@@ -50,7 +50,6 @@ def spectrum(
 
 
 def calibrate_spectrum(wl2pos: callable, spec: callable) -> callable:
-    @cache
     def calibrated_spectrum(bin_edges: ArrayLike):
         det_bin_edges = wl2pos(bin_edges)
         return spec(det_bin_edges)
