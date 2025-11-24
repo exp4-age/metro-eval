@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from functools import partial
 import numpy as np
+
+from metro_eval.calib import pos2wl_converter, wl2pos_converter
 
 from typing import TYPE_CHECKING
 
@@ -9,57 +11,57 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
 
-@dataclass(frozen=True)
-class SeyaNamioka:
-    grating_pos: int
-    lines_per_mm: int = 1200
-    focal_length: float = 1000.0
-    detector_diameter: float = 87.0
-    angle_of_incidence: float = 7.5
+def pifs_pos2wl_converter(
+    grating_pos: int,
+    lines_per_mm: int = 1200,
+    focal_length: float = 1000.0,
+    angle_of_incidence: float = 7.5,
+    detector_width: float = 75.0,
+) -> callable[[NDArray[np.float64]], NDArray[np.float64]]:
+    pos2wl = pos2wl_converter(
+        lines_per_mm=lines_per_mm,
+        focal_length=focal_length,
+        angle_of_incidence=angle_of_incidence,
+    )
 
-    def __post_init__(self) -> None:
-        # angle of incidence 0th order in rad
-        phi = np.deg2rad(self.angle_of_incidence, dtype=np.float64)
+    # angle of incidence 0th order in rad
+    phi = np.deg2rad(angle_of_incidence)
 
-        # grating constant in nm
-        object.__setattr__(self, "d", 1e6 / self.lines_per_mm)
+    # central wavelength (1st order) for a 600 l/mm grating in nm
+    wl_c = grating_pos * 0.1
 
-        # central wavelength (1st order) for a 600 l/mm grating in nm
-        wl_c = self.grating_pos * 0.1
+    # grating constant for 600 l/mm in nm
+    d = 1e6 / 600
 
-        # grating constant for 600 l/mm in nm
-        d = 1e6 / 600
+    # determine the corresponding grating rotation angle
+    theta = np.arccos(wl_c / (2 * d * np.sin(phi)))
 
-        # determine the corresponding grating rotation angle
-        theta = np.arccos(wl_c / (2 * d * np.sin(phi)))
+    return partial(pos2wl, theta=theta, scale=detector_width)
 
-        # angle of incidence and reflection
-        object.__setattr__(self, "alpha", phi - theta)
-        object.__setattr__(self, "beta_center", phi + theta)
 
-    def pos2wl(
-        self,
-        x: NDArray[np.float64],
-        n: int = 1,
-    ) -> NDArray[np.float64]:
-        # scale x to physical dimensions and center around 0
-        x = x * self.detector_diameter - self.detector_diameter * 0.5
+def pifs_wl2pos_converter(
+    grating_pos: int,
+    lines_per_mm: int = 1200,
+    focal_length: float = 1000.0,
+    angle_of_incidence: float = 7.5,
+    detector_width: float = 75.0,
+) -> callable[[NDArray[np.float64]], NDArray[np.float64]]:
+    wl2pos = wl2pos_converter(
+        lines_per_mm=lines_per_mm,
+        focal_length=focal_length,
+        angle_of_incidence=angle_of_incidence,
+    )
 
-        # angles of reflection
-        beta = np.arctan(x / self.focal_length) + self.beta_center
+    # angle of incidence 0th order in rad
+    phi = np.deg2rad(angle_of_incidence)
 
-        return self.d * (np.sin(self.alpha) + np.sin(beta)) / n
+    # central wavelength (1st order) for a 600 l/mm grating in nm
+    wl_c = grating_pos * 0.1
 
-    def wl2pos(
-        self,
-        wl: NDArray[np.float64],
-        n: int = 1,
-    ) -> NDArray[np.float64]:
-        # angles of reflection
-        beta = np.arcsin(n * wl / self.d - np.sin(self.alpha))
+    # grating constant for 600 l/mm in nm
+    d = 1e6 / 600
 
-        # position on detector
-        x = self.focal_length * np.tan(beta - self.beta_center)
+    # determine the corresponding grating rotation angle
+    theta = np.arccos(wl_c / (2 * d * np.sin(phi)))
 
-        # scale to [0, 1]
-        return (x + self.detector_diameter * 0.5) / self.detector_diameter
+    return partial(wl2pos, theta=theta, scale=detector_width)

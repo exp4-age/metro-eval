@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import cache
 import numpy as np
 
 from typing import TYPE_CHECKING
@@ -48,10 +49,13 @@ def spectrum(
     return hist_spectrum
 
 
-def calibrate_spectrum(calib: object, spec: callable) -> callable:
+def calibrate_spectrum(wl2pos: callable, spec: callable) -> callable:
+    @cache
     def calibrated_spectrum(bin_edges: ArrayLike):
-        det_bin_edges = calib.wl2pos(bin_edges)
+        det_bin_edges = wl2pos(bin_edges)
         return spec(det_bin_edges)
+
+    return calibrated_spectrum
 
 
 def sum_spectra(
