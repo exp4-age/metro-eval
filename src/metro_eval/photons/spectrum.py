@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from functools import cache
+from functools import wraps
 import numpy as np
 
 from typing import TYPE_CHECKING
@@ -27,6 +27,21 @@ def spectrum(
     x = xy[:, 0].flatten()
 
     def hist_spectrum(det_bin_edges: ArrayLike) -> tuple[NDArray, NDArray]:
+        """Histogram the spectrum data.
+
+        Parameters
+        ----------
+        det_bin_edges : ArrayLike
+            Detector bin edges.
+
+        Returns
+        -------
+        spec : NDArray
+            Binned spectrum.
+        err : NDArray
+            Uncertainties for each bin.
+
+        """
         # Histogram the data
         spec = np.histogram(x, bins=det_bin_edges)[0]
         spec = np.asarray(spec, dtype=np.float64)
@@ -49,14 +64,6 @@ def spectrum(
     return hist_spectrum
 
 
-def calibrate_spectrum(wl2pos: callable, spec: callable) -> callable:
-    def calibrated_spectrum(bin_edges: ArrayLike):
-        det_bin_edges = wl2pos(bin_edges)
-        return spec(det_bin_edges)
-
-    return calibrated_spectrum
-
-
 def sum_spectra(
     spectra: list[callable],
 ) -> callable:
@@ -74,21 +81,78 @@ def sum_spectra(
     return summed_spectrum
 
 
-def subtract_background(bkg: callable) -> callable:
-    def hist_background(det_bin_edges: ArrayLike) -> callable:
-        bkg_spec, bkg_err = bkg(det_bin_edges)
+def subtract_background(bkg: callable, spec: callable) -> callable:
+    @wraps(spec)
+    def background_subtracted_spectrum(
+        det_bin_edges: ArrayLike,
+    ) -> tuple[NDArray, NDArray]:
+        bkg_hist, bkg_err = bkg(det_bin_edges)
+        hist, err = spec(det_bin_edges)
 
-        def subtract(spectrum: callable) -> tuple[NDArray, NDArray]:
-            spec, err = spectrum(det_bin_edges)
+        # Subtract background
+        hist -= bkg_hist
 
-            # Subtract background
-            spec -= bkg_spec
+        # Propagate uncertainties
+        err = np.sqrt(err**2 + bkg_err**2)
 
-            # Propagate uncertainties
-            err = np.sqrt(err**2 + bkg_err**2)
+        return hist, err
 
-            return spec, err
 
-        return subtract
+def normalize_spectrum(norm: tuple[float, float], spec: callable) -> callable:
+    norm_val, norm_err = norm
 
-    return hist_background
+    @wraps(spec)
+    def normalized_spectrum(bin_edges: ArrayLike) -> tuple[NDArray, NDArray]:
+        hist, err = spec(bin_edges)
+
+        # Normalize spectrum
+        err = np.sqrt(
+            (err / norm_val) ** 2 + (hist * norm_err / norm_val**2) ** 2
+        )
+        hist /= norm_val
+
+        return hist, err
+
+    return normalized_spectrum
+
+
+def correct_qeff(qeff: callable, spec: callable) -> callable:
+    @wraps(spec)
+    def corrected_spectrum(
+        det_bin_edges: ArrayLike,
+    ) -> tuple[NDArray, NDArray]:
+        hist, err = spec(det_bin_edges)
+        qeff_val, qeff_err = qeff(det_bin_edges)
+
+        # Correct for quantum efficiency
+        err = np.sqrt(
+            (err / qeff_val) ** 2 + (hist * qeff_err / qeff_val**2) ** 2
+        )
+        hist /= qeff_val
+
+        return hist, err
+
+    return corrected_spectrum
+
+
+def calibrate_spectrum(wl2pos: callable, spec: callable) -> callable:
+    def calibrated_spectrum(bin_edges: ArrayLike):
+        """Histogram the calibrated spectrum data.
+
+        Parameters
+        ----------
+        bin_edges : ArrayLike
+            Bin edges as wavelengths.
+
+        Returns
+        -------
+        spec : NDArray
+            Binned spectrum.
+        err : NDArray
+            Uncertainties for each bin.
+
+        """
+        det_bin_edges = wl2pos(bin_edges)
+        return spec(det_bin_edges)
+
+    return calibrated_spectrum
