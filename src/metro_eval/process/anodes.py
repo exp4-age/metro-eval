@@ -88,7 +88,7 @@ class WsaAnode(PositionAnode):
         b = self.scale_b * rows[:, 1] + self.offset_b
         abc = a + b + self.scale_c * rows[:, 2] + self.offset_c
 
-        pos = np.empty((a.shape[0], 2), dtype=float)
+        pos = np.empty((a.shape[0], 2), dtype=np.float64)
         pos[:, 0] = a / abc
         pos[:, 1] = b / abc
 
@@ -142,7 +142,7 @@ class DldAnodeXY(DldAnode):
         # also, a cross correction should be done (software or hardware)
         ratio_xy = 1.06
 
-        pos = np.empty((x.shape[0], 2), dtype=float)
+        pos = np.empty((x.shape[0], 2), dtype=np.float64)
         pos[:, 0] = x
         pos[:, 1] = y * ratio_xy
 
@@ -179,7 +179,7 @@ class DldAnodeUVW(DldAnode):
         v = rows[:, 2] - rows[:, 3]
         w = rows[:, 4] - rows[:, 5]
 
-        pos = np.empty((u.shape[0], 2), dtype=float)
+        pos = np.empty((u.shape[0], 2), dtype=np.float64)
         pos[:, 0] = (2 * u - v - w) / 3
         pos[:, 1] = (v - w) / np.sqrt(3)
 
@@ -192,9 +192,9 @@ class DldAnodeUV(DldAnode):
         u = rows[:, 0] - rows[:, 1]
         v = rows[:, 2] - rows[:, 3]
 
-        pos = np.empty((u.shape[0], 2), dtype=float)
+        pos = np.empty((u.shape[0], 2), dtype=np.float64)
         pos[:, 0] = u
-        pos[:, 1] = (u + 2 * v) / 1.7321
+        pos[:, 1] = (u + 2 * v) / np.sqrt(3)
 
         return super().process(pos)
 
@@ -210,9 +210,9 @@ class DldAnodeUW(DldAnode):
             u = rows[:, 0] - rows[:, 1]
             w = rows[:, 2] - rows[:, 3]
 
-        pos = np.empty((u.shape[0], 2), dtype=float)
+        pos = np.empty((u.shape[0], 2), dtype=np.float64)
         pos[:, 0] = u
-        pos[:, 1] = (u + 2 * w) / -1.7321
+        pos[:, 1] = -(u + 2 * w) / np.sqrt(3)
 
         return super().process(pos)
 
@@ -228,9 +228,9 @@ class DldAnodeVW(DldAnode):
             v = rows[:, 0] - rows[:, 1]
             w = rows[:, 2] - rows[:, 3]
 
-        pos = np.empty((v.shape[0], 2), dtype=float)
+        pos = np.empty((v.shape[0], 2), dtype=np.float64)
         pos[:, 0] = -v - w
-        pos[:, 1] = (v - w) / 1.7321
+        pos[:, 1] = (v - w) / np.sqrt(3)
 
         return super().process(pos)
 

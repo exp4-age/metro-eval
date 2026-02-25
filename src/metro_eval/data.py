@@ -11,6 +11,13 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
+__all__ = [
+    "load_all",
+    "load_beamtime",
+    "load_measurement",
+    "open_metro_h5",
+]
+
 
 def load_all(
     glob_dir: str | Path = ".",
@@ -274,11 +281,13 @@ def load_data_stream(
 
     # Check if the data is a continuous data stream (metro)
     if "Frequency" not in h5f[data_key].attrs:
-        errmsg = f"Channel {data_key} is missing 'Frequency' attribute"
+        errmsg = f"Channel {data_key} is missing 'Frequency' attribute in {h5f.filename}"
         raise ValueError(errmsg)
 
     if h5f[data_key].attrs["Frequency"] != "continuous":
-        errmsg = f"Channel {data_key} data is not 'continuous'"
+        errmsg = (
+            f"Channel {data_key} data is not 'continuous' in {h5f.filename}"
+        )
         raise ValueError(errmsg)
 
     # Check if the scan index is present
@@ -294,7 +303,7 @@ def load_data_stream(
             warnings.warn(wrnmsg, stacklevel=1)
             continue
 
-        data[step_key] = np.squeeze(dset)
+        data[step_key] = np.array(dset, order="F").squeeze()
 
     return data
 
@@ -339,6 +348,6 @@ def load_sorted_events(
             warnings.warn(wrnmsg, stacklevel=1)
             continue
 
-        data[step_key] = np.squeeze(step_group[data_key])
+        data[step_key] = np.array(step_group[data_key], order="F").squeeze()
 
     return data

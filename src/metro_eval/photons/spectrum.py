@@ -11,22 +11,20 @@ if TYPE_CHECKING:
     from numpy.typing import ArrayLike, NDArray
 
 
-def spectrum(
-    xy: NDArray,
-    time: int | float = 1,
-    roi: ArrayLike = ((0, 1), (0, 1)),
-) -> callable[[ArrayLike], tuple[NDArray, NDArray]]:
-    x_min, x_max = roi[0]
-    y_min, y_max = roi[1]
+def spectrum_processor(
+    det_bin_edges: ArrayLike,
+    x_roi: tuple[float, float] = (0, 1),
+    y_roi: tuple[float, float] = (0, 1),
+) -> callable[NDArray, tuple[NDArray, NDArray]]:
+    y_min, y_max = y_roi
 
-    # Apply y roi filter
-    xy = xy[xy[:, 1] > y_min]
-    xy = xy[xy[:, 1] < y_max]
+    x_min, x_max = x_roi
+    idx_min = np.searchsorted(det_bin_edges, x_min)
+    idx_max = np.searchsorted(det_bin_edges, x_max)
 
-    # Don't need y values anymore: project to x axis
-    x = xy[:, 0].flatten()
-
-    def hist_spectrum(det_bin_edges: ArrayLike) -> tuple[NDArray, NDArray]:
+    def spectrum(
+        xy: NDArray, time: int | float = 1
+    ) -> tuple[NDArray, NDArray]:
         """Histogram the spectrum data.
 
         Parameters
@@ -42,13 +40,14 @@ def spectrum(
             Uncertainties for each bin.
 
         """
+        # Apply y roi filter
+        xy = xy[(xy[:, 1] > y_min) & (xy[:, 1] < y_max)]
+
         # Histogram the data
-        spec = np.histogram(x, bins=det_bin_edges)[0]
+        spec = np.histogram(xy[:, 0], bins=det_bin_edges)[0]
         spec = np.asarray(spec, dtype=np.float64)
 
         # Apply x roi filter
-        idx_min = np.searchsorted(det_bin_edges, x_min)
-        idx_max = np.searchsorted(det_bin_edges, x_max)
         spec[:idx_min] = 0
         spec[idx_max - 1 :] = 0
 
@@ -61,7 +60,7 @@ def spectrum(
 
         return spec, err
 
-    return hist_spectrum
+    return spectrum
 
 
 def sum_spectra(
