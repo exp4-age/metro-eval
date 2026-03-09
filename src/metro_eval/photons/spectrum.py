@@ -101,8 +101,10 @@ def normalize_spectrum(norm: tuple[float, float], spec: callable) -> callable:
     norm_val, norm_err = norm
 
     @wraps(spec)
-    def normalized_spectrum(bin_edges: ArrayLike) -> tuple[NDArray, NDArray]:
-        hist, err = spec(bin_edges)
+    def normalized_spectrum(
+        xy: NDArray, time: int | float = 1
+    ) -> tuple[NDArray, NDArray]:
+        hist, err = spec(xy, time=time)
 
         # Normalize spectrum
         err = np.sqrt(
