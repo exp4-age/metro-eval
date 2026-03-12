@@ -1,3 +1,5 @@
+"""Anodes for position-sensitive detectors."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

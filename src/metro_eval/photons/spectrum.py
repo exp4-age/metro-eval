@@ -16,6 +16,23 @@ def spectrum_processor(
     x_roi: tuple[float, float] = (0, 1),
     y_roi: tuple[float, float] = (0, 1),
 ) -> callable[NDArray, tuple[NDArray, NDArray]]:
+    """Spectrum processor binning pos#pos data.
+
+    Parameters
+    ----------
+    det_bin_edges : ArrayLike
+        Detector bin edges with maximum range (0, 1).
+    x_roi : tuple[float, float], optional
+        Region of interest for the x-axis (detector position).
+    y_roi : tuple[float, float], optional
+        Region of interest for the y-axis (detector position).
+
+    Returns
+    -------
+    callable
+        Function processing and binning pos#pos data.
+
+    """
     y_min, y_max = y_roi
 
     x_min, x_max = x_roi
@@ -98,6 +115,21 @@ def subtract_background(bkg: callable, spec: callable) -> callable:
 
 
 def normalize_spectrum(norm: tuple[float, float], spec: callable) -> callable:
+    """Normalize spectrum by a given value with uncertainty.
+
+    Parameters
+    ----------
+    norm : tuple[float, float]
+        Normalization value and its uncertainty.
+    spec : callable
+        Spectrum processor function to be normalized.
+
+    Returns
+    -------
+    callable
+        Normalized spectrum processor function.
+
+    """
     norm_val, norm_err = norm
 
     @wraps(spec)

@@ -1,3 +1,5 @@
+"""Common energy calibration functions for our spectrometers."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -12,7 +14,26 @@ def wavelength_converter(
     lines_per_mm: int = 1200,
     focal_length: float = 1000.0,
     angle_of_incidence: float = 7.5,
-) -> callable[[NDArray[np.float64], float, float], NDArray[np.float64]]:
+) -> tuple[callable, callable]:
+    """Return functions to convert between detector positions and wavelengths.
+
+    Parameters
+    ----------
+    lines_per_mm: int, optional
+        Number of lines per mm of the grating.
+    focal_length: float, optional
+        Focal length of the spectrometer in mm.
+    angle_of_incidence: float, optional
+        Angle of incidence of the light on the grating in degrees.
+
+    Returns
+    -------
+    tuple
+        A tuple containing two functions::
+            - x_to_λ(x, θ, scale): Convert detector positions to wavelengths.
+            - λ_to_x(λ, θ, scale): Convert wavelengths to detector positions.
+
+    """
     # angle of incidence 0th order in rad
     φ = np.deg2rad(angle_of_incidence)
 

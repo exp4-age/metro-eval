@@ -36,6 +36,7 @@ dev = [
 ]
 docs = [
     "jupyter>=1.1.1",
+    "matplotlib>=3.10.8",
     "nbsphinx>=0.9.7",
     "numpydoc>=1.8.0",
     "pandoc>=2.4",

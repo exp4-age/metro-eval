@@ -1,3 +1,5 @@
+"""Load data from hdf5 files created by metro2hdf."""
+
 from __future__ import annotations
 
 import warnings
