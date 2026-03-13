@@ -23,6 +23,8 @@ dependencies = [
     "cython>=3.2.1",
     "h5py>=3.13.0",
     "numpy>=1.21",
+    "pyqtgraph>=0.14.0",
+    "pyside6>=6.10.2",
     "rich>=14.2.0",
 ]
 
