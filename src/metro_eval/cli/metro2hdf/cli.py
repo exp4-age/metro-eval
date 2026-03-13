@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 import warnings
-import os
 from pathlib import Path
 import h5py
 from rich.live import Live
@@ -15,59 +13,46 @@ from ._process_hptdc import process_hptdc
 from ._group_runs import group_runs
 
 
-def get_table_generator(
+def generate_table(
     run_table: dict[str, dict[str, str]],
-    start: int = 0,
-    max_rows: int | None = None,
 ) -> callable[[dict], Table]:
     run_table = run_table.copy()
-    last_table = {}
 
-    def get_table(
-        runs: dict[str, dict[str, str]] | None = None,
+    def update_table(
+        num: str | None = None,
+        status: str | None = None,
+        progress: str | None = None,
+        skip_finished: bool = True,
     ) -> Table:
-        if runs is None:
-            if "table" in last_table:
-                return last_table["table"]
+        if num is not None and num in run_table:
+            if status is not None:
+                run_table[num]["status"] = status
 
-        else:
-            for num in runs:
-                if "status" in runs[num]:
-                    run_table[num]["status"] = runs[num]["status"]
-
-                if "progress" in runs[num]:
-                    run_table[num]["progress"] = runs[num]["progress"]
+            if progress is not None:
+                run_table[num]["progress"] = progress
 
         table = Table(expand=True)
         table.add_column("run", justify="right", style="cyan", ratio=1)
         table.add_column("status", style="magenta", ratio=8)
         table.add_column("progress", justify="center", style="green", ratio=1)
 
-        row_number = 0
-        row_count = 0
+        printed_ellipsis = False
 
         for num in run_table:
-            row_number += 1
+            if skip_finished and run_table[num]["status"].startswith("done"):
+                if not printed_ellipsis:
+                    table.add_row("...", "...", "...")
+                    printed_ellipsis = True
 
-            if row_number < start:
                 continue
 
-            if max_rows is not None and row_count >= max_rows:
-                break
-
             table.add_row(
-                num,
-                run_table[num].get("status", ""),
-                run_table[num].get("progress", ""),
+                num, run_table[num]["status"], run_table[num]["progress"]
             )
-
-            row_count += 1
-
-        last_table["table"] = table
 
         return table
 
-    return get_table
+    return update_table
 
 
 def process_channels(
@@ -76,39 +61,31 @@ def process_channels(
     h5f: h5py.File,
     args: argparse.Namespace,
     live: Live,
-    generate_table: callable[[dict], Table],
+    update_table: callable,
 ) -> None:
-    empty = {}
-    skipped = []
-    tdc_warnings = ""
+    warns = []
 
-    progress = 0
+    counter = 0
     total = len(run["channels"])
 
     for channel, file_path in run["channels"].items():
         status = f"processing channel {channel}..."
-        live.update(generate_table({num: {"status": status}}))
+        live.update(update_table(num=num, status=status))
 
         channel_grp = h5f.require_group(channel)
 
         if file_path.endswith(".txt"):
-            # TODO: async messes with warnings here
-            # maybe use return value instead
-            with warnings.catch_warnings(record=True) as wrns:
-                warnings.simplefilter("always")
+            empty = process_ascii(
+                file_path,
+                channel_grp,
+                compression="gzip",
+                compression_opts=args.compression,
+            )
 
-                process_ascii(
-                    file_path,
-                    channel_grp,
-                    compression=args.compression,
-                )
-
-                if len(wrns) > 0:
-                    empty[channel] = len(wrns)
+            if empty is not None:
+                warns.append(empty)
 
         elif file_path.endswith(".tdc"):
-            # TODO: async messes with warnings here
-            # maybe use return value instead
             with warnings.catch_warnings(record=True) as wrns:
                 warnings.simplefilter("always")
 
@@ -121,29 +98,23 @@ def process_channels(
                     compression=args.compression,
                 )
                 if len(wrns) > 0:
-                    tdc_warnings = " ".join([str(w.message) for w in wrns])
+                    tdc_warnings = "; ".join([str(w.message) for w in wrns])
+                    warns.append(f"(HPTDC warnings: {tdc_warnings})")
 
         else:
-            suffix = file_path.rsplit(".", 1)[-1]
-            skipped.append(channel + "." + suffix)
+            file_type = channel + "." + file_path.rsplit(".", 1)[-1]
+            warns.append(f"(Unknown file type {file_type}, skipping...)")
 
-        progress += 1
+        counter += 1
 
-        pr = f"{progress} / {total}"
-        live.update(generate_table({num: {"progress": pr}}))
+        progress = f"{counter} / {total}"
+        live.update(update_table(num=num, progress=progress))
 
-    status = "done"
+    status = "done "
+    if len(warns) > 0:
+        status += " ".join(warns)
 
-    if len(skipped) > 0:
-        status += f" (skipped: {', '.join(skipped)})"
-
-    for channel, count in empty.items():
-        status += f" ({count} empty steps in {channel})"
-
-    if tdc_warnings != "":
-        status += f" (HPTDC warnings: {tdc_warnings})"
-
-    live.update(generate_table({num: {"status": status}}))
+    live.update(update_table(num=num, status=status))
 
 
 def process_run(
@@ -151,7 +122,7 @@ def process_run(
     run: dict,
     args: argparse.Namespace,
     live: Live,
-    generate_table: callable[[dict], Table],
+    update_table: callable,
 ) -> None:
     attrs = run["attrs"]
 
@@ -171,9 +142,9 @@ def process_run(
     file_path = args.output_dir / (file_name + ".h5")
 
     if file_path.is_file() and not args.replace:
-        status = "hdf5 exists: skipping..."
-        live.update(generate_table({num: {"status": status}}))
-
+        status = "done (hdf5 exists: skipping...)"
+        progress = "0 / 0"
+        live.update(update_table(num=num, status=status, progress=progress))
         return
 
     with h5py.File(file_path, "w", driver=args.driver) as h5f:
@@ -186,80 +157,10 @@ def process_run(
         if "time" in attrs:
             h5f.attrs["time"] = attrs["time"].strftime("%H:%M:%S")
 
-        process_channels(
-            num,
-            run,
-            h5f,
-            args,
-            live,
-            generate_table,
-        )
+        process_channels(num, run, h5f, args, live, update_table)
 
 
-async def run_processor(
-    num: str,
-    run: dict,
-    args: argparse.Namespace,
-    semaphore: asyncio.Semaphore,
-    live: Live,
-    generate_table: callable[[dict], Table],
-) -> None:
-    async with semaphore:
-        loop = asyncio.get_running_loop()
-
-        await loop.run_in_executor(
-            None,
-            process_run,
-            num,
-            run,
-            args,
-            live,
-            generate_table,
-        )
-
-
-async def process_runs(runs: dict, args: argparse.Namespace) -> None:
-    semaphore = asyncio.Semaphore(args.workers)
-
-    max_lines = os.get_terminal_size().lines - 8
-    chunk_size = max(max_lines // args.workers * args.workers, args.workers)
-
-    chunks = []
-    for i, run in enumerate(runs):
-        if i % chunk_size == 0:
-            chunks.append({})
-
-        chunks[-1][run] = runs[run]
-
-    console = Console()
-    console.print(
-        f"[bold]Processing {len(runs)} runs in {len(chunks)} chunks[/bold]"
-    )
-    console.print(f"[bold]Using {args.workers} parallel workers[/bold]\n")
-
-    for i, chunk in enumerate(chunks):
-        console.print(f"[bold]Processing chunk {i + 1} / {len(chunks)}[/bold]")
-
-        generate_table = get_table_generator(chunk, max_rows=chunk_size)
-
-        with Live(generate_table(), refresh_per_second=4) as live:
-            async with asyncio.TaskGroup() as tg:
-                for num in chunk:
-                    tg.create_task(
-                        run_processor(
-                            num,
-                            chunk[num],
-                            args,
-                            semaphore,
-                            live,
-                            generate_table,
-                        )
-                    )
-
-
-def main() -> None:
-    args = parser().parse_args()
-
+def main(args: argparse.Namespace) -> None:
     if isinstance(args.output_dir, str):
         args.output_dir = Path(args.output_dir)
 
@@ -272,15 +173,23 @@ def main() -> None:
     # group files into runs
     runs = group_runs(matches)
 
-    asyncio.run(process_runs(runs, args))
+    # create a table generator for the live display
+    update_table = generate_table(runs)
+
+    with Live(update_table(), refresh_per_second=4, transient=True) as live:
+        for num, run in runs.items():
+            process_run(num, run, args, live, update_table)
+
+    console = Console()
+    console.print(update_table(skip_finished=False))
 
 
-def parser() -> argparse.ArgumentParser:
-    cli = argparse.ArgumentParser(
-        prog="metro2hdf", description="Converts METRO data files to hdf5"
+def parser(subparsers):
+    parser = subparsers.add_parser(
+        "metro2hdf", description="Converts METRO data files to hdf5"
     )
 
-    cli.add_argument(
+    parser.add_argument(
         "--glob",
         dest="glob_str",
         action="store",
@@ -291,7 +200,7 @@ def parser() -> argparse.ArgumentParser:
         "(default: *)",
     )
 
-    cli.add_argument(
+    parser.add_argument(
         "--output-dir",
         dest="output_dir",
         action="store",
@@ -301,24 +210,14 @@ def parser() -> argparse.ArgumentParser:
         help="output directory for hdf5 files",
     )
 
-    cli.add_argument(
+    parser.add_argument(
         "--replace",
         dest="replace",
         action="store_true",
         help="replace already existing output files",
     )
 
-    cli.add_argument(
-        "--workers",
-        dest="workers",
-        action="store",
-        type=int,
-        metavar="number",
-        default=4,
-        help="number of concurrent workers to use for conversion",
-    )
-
-    shortening_group = cli.add_mutually_exclusive_group()
+    shortening_group = parser.add_mutually_exclusive_group()
 
     shortening_group.add_argument(
         "--short-name",
@@ -334,7 +233,7 @@ def parser() -> argparse.ArgumentParser:
         help="use full name with datetime for the output files",
     )
 
-    hdf_group = cli.add_argument_group("HDF5 options")
+    hdf_group = parser.add_argument_group("HDF5 options")
 
     hdf_group.add_argument(
         "--driver",
@@ -360,7 +259,7 @@ def parser() -> argparse.ArgumentParser:
         "(default: 4) for datasets above 1024 bytes",
     )
 
-    hptdc_group = cli.add_argument_group("HPTDC options")
+    hptdc_group = parser.add_argument_group("HPTDC options")
 
     hptdc_group.add_argument(
         "--hptdc-chunk-size",
@@ -393,4 +292,4 @@ def parser() -> argparse.ArgumentParser:
         "and argument (8 byte per word).",
     )
 
-    return cli
+    parser.set_defaults(func=main)

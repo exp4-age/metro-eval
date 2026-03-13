@@ -2,7 +2,6 @@ import time
 import glob
 from pathlib import Path
 import sys
-
 import numpy as np
 import h5py
 
@@ -88,23 +87,15 @@ def analyze_words_python(events, words):
     return n_events
 
 
-def run(
-    glob_str="*",
-    output_dir=None,
-    replace=False,
-    verbose=False,
-    datatype="EP",
-    **kwargs,
-):
+def run(args) -> None:
     # Folder where to write created HDF5 files
-    output_dir = Path.cwd() if output_dir is None else Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    args.output_dir.mkdir(parents=True, exist_ok=True)
 
     # Folder with data to parse
-    files = Path(glob_str).resolve()
+    files = Path(args.glob_str).resolve()
 
     # Type of particles measured: EI as optional 2nd CL argument for EI coinc.
-    par2 = "I" if datatype == "EI" else "P"
+    par2 = "I" if args.datatype == "EI" else "P"
 
     print(f"Sort TDC events (E/{par2}) from Metro HDF files:\n\t{files}")
 
@@ -124,7 +115,7 @@ def run(
         [("type", "S2"), ("arg1", "i1"), ("arg2", "i1"), ("arg3", "<i4")]
     )
 
-    filelist = sorted(glob.glob(glob_str))
+    filelist = sorted(glob.glob(args.glob_str))
     if filelist:
         print("\nParsing files...")
     else:
@@ -135,9 +126,9 @@ def run(
         run_file = Path(run_file)
         filename = run_file.name
         run_nr = filename[: filename.find("_")]
-        out_file = output_dir / f"{run_nr}_ev.h5"
+        out_file = args.output_dir / f"{run_nr}_ev.h5"
 
-        if out_file.is_file() and not replace:
+        if out_file.is_file() and not args.replace:
             print(" * Skipping already processed", filename)
             continue
         elif run_file.stat().st_size > 100 * 2**30:  # 100 Gbyte max.
@@ -278,71 +269,7 @@ def run(
     print("\ndone")
 
 
-def main():
-    import argparse
-
-    # Define command line arguments
-    cli = argparse.ArgumentParser(
-        prog="sort_events.py",
-        description="Creates a hdf5 file containing sorted TDC events.",
-    )
-
-    cli.add_argument(
-        "--glob",
-        dest="glob_str",
-        action="store",
-        type=str,
-        metavar="pattern",
-        default="*.h5",
-        help="specify a pattern to glob for to narrow down conversion "
-        "(default: *)",
-    )
-
-    cli.add_argument(
-        "--output-dir",
-        dest="output_dir",
-        action="store",
-        type=str,
-        metavar="path",
-        default=Path.cwd(),
-        help="output directory for hdf5 files",
-    )
-
-    cli.add_argument(
-        "--replace",
-        dest="replace",
-        action="store_true",
-        help="replace already existing output files",
-    )
-
-    cli.add_argument(
-        "--verbose",
-        dest="verbose",
-        action="store_true",
-        help="give more detailed messages if possible",
-    )
-
-    cli.add_argument(
-        "--event-counter",
-        dest="counter",
-        action="store_true",
-        help="also store the event number alongside the event data",
-    )
-
-    cli.add_argument(
-        "--type",
-        dest="datatype",
-        action="store",
-        type=str,
-        metavar="particles",
-        default="EP",
-        choices=["EP", "EI"],
-        help="type of recorded particles, either EP or EI",
-    )
-
-    # Parse them!
-    args, argv_left = cli.parse_known_args()
-
+def main(args):
     try:
         run(**vars(args))
     except Exception as e:
@@ -353,3 +280,65 @@ def main():
             print("FATAL:", str(e))
 
         sys.exit(0)
+
+
+def parser(subparsers):
+    parser = subparsers.add_parser(
+        "sort_events",
+        description="Creates a hdf5 file containing sorted TDC events",
+    )
+
+    parser.add_argument(
+        "--glob",
+        dest="glob_str",
+        action="store",
+        type=str,
+        metavar="pattern",
+        default="*.h5",
+        help="specify a pattern to glob for to narrow down conversion "
+        "(default: *)",
+    )
+
+    parser.add_argument(
+        "--output-dir",
+        dest="output_dir",
+        action="store",
+        type=str,
+        metavar="path",
+        default=Path.cwd(),
+        help="output directory for hdf5 files",
+    )
+
+    parser.add_argument(
+        "--replace",
+        dest="replace",
+        action="store_true",
+        help="replace already existing output files",
+    )
+
+    parser.add_argument(
+        "--verbose",
+        dest="verbose",
+        action="store_true",
+        help="give more detailed messages if possible",
+    )
+
+    parser.add_argument(
+        "--event-counter",
+        dest="counter",
+        action="store_true",
+        help="also store the event number alongside the event data",
+    )
+
+    parser.add_argument(
+        "--type",
+        dest="datatype",
+        action="store",
+        type=str,
+        metavar="particles",
+        default="EP",
+        choices=["EP", "EI"],
+        help="type of recorded particles, either EP or EI",
+    )
+
+    parser.set_defaults(func=main)

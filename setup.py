@@ -3,15 +3,15 @@ from Cython.Build import cythonize
 import numpy
 
 sorting_tdc = Extension(
-    name="metro_eval.sort_events.sorting_tdc",
-    sources=["src/metro_eval/sort_events/sorting_tdc.pyx"],
+    name="metro_eval.cli.sort_events.sorting_tdc",
+    sources=["src/metro_eval/cli/sort_events/sorting_tdc.pyx"],
     include_dirs=[numpy.get_include()],
     optional=True,
 )
 
 index_ascii = Extension(
-    name="metro_eval.metro2hdf._index_ascii",
-    sources=["src/metro_eval/metro2hdf/_index_ascii.py"],
+    name="metro_eval.cli.metro2hdf._index_ascii",
+    sources=["src/metro_eval/cli/metro2hdf/_index_ascii.py"],
     optional=True,
 )
 
