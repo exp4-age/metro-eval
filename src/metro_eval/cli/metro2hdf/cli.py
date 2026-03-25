@@ -177,7 +177,8 @@ def main(args: argparse.Namespace) -> None:
         args.output_dir = Path(args.output_dir)
 
     # glob files with given pattern
-    matches = list(Path.cwd().glob(args.glob_str))
+    path = Path(args.glob_str)
+    matches = list(Path(path.anchor).glob(str(path.relative_to(path.anchor))))
 
     if len(matches) == 0:
         raise FileNotFoundError()
