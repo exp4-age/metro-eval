@@ -10,6 +10,7 @@ from rich.console import Console
 
 from ._process_ascii import process_ascii
 from ._process_hptdc import process_hptdc
+from ._process_hdf5 import process_hdf5
 from ._group_runs import group_runs
 
 
@@ -100,6 +101,17 @@ def process_channels(
                 if len(wrns) > 0:
                     tdc_warnings = "; ".join([str(w.message) for w in wrns])
                     warns.append(f"(HPTDC warnings: {tdc_warnings})")
+
+        elif file_path.endswith((".h5", ".hdf5")):
+            err = process_hdf5(
+                file_path,
+                channel_grp,
+                compression="gzip",
+                compression_opts=args.compression,
+            )
+
+            if err is not None:
+                warns.append(err)
 
         else:
             file_type = channel + "." + file_path.rsplit(".", 1)[-1]
