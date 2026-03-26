@@ -87,9 +87,10 @@ def analyze_words_python(events, words):
     return n_events
 
 
-def run(args) -> None:
+def main(args) -> None:
     # Folder where to write created HDF5 files
-    args.output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir = Path(args.output_dir).resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     # Folder with data to parse
     files = Path(args.glob_str).resolve()
@@ -126,7 +127,7 @@ def run(args) -> None:
         run_file = Path(run_file)
         filename = run_file.name
         run_nr = filename[: filename.find("_")]
-        out_file = args.output_dir / f"{run_nr}_ev.h5"
+        out_file = output_dir / f"{run_nr}_ev.h5"
 
         if out_file.is_file() and not args.replace:
             print(" * Skipping already processed", filename)
@@ -267,19 +268,6 @@ def run(args) -> None:
                     )
 
     print("\ndone")
-
-
-def main(args):
-    try:
-        run(**vars(args))
-    except Exception as e:
-        if args.verbose:
-            print("FATAL EXCEPTION")
-            raise e
-        else:
-            print("FATAL:", str(e))
-
-        sys.exit(0)
 
 
 def parser(subparsers):
