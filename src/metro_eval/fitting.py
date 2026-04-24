@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6 import QtWidgets, QtCore
+from PySide6 import QtWidgets, QtCore, QtGui
 import pyqtgraph as pg
 import numpy as np
 from iminuit import Minuit, cost
@@ -16,7 +16,10 @@ def interactive(x: np.ndarray, y: np.ndarray, yerr: np.ndarray | float) -> int:
     mw.show()
 
     # start the event loop
-    return app.exec()
+    app.exec()
+
+    # return the fit results
+    return mw.fit_results()
 
 
 def linear(x: np.ndarray, m: float, b: float) -> np.ndarray:
@@ -41,21 +44,23 @@ class MainWindow(QtWidgets.QDialog):
         y: np.ndarray,
         yerr: np.ndarray | float,
     ) -> None:
+        # set up the window
         super().__init__()
         self.setWindowTitle("metro-eval - fitting")
         self.resize(1280, 720)
-        # self.setMaximumSize(1280, 720)
-        # self.main_widget = QtWidgets.QWidget(self)
-        # self.setCentralWidget(self.main_widget)
+
+        # set the font
+        font = QtGui.QFont()
+        font.setPointSize(11)
+        self.setFont(font)
+
+        # create the main layout
         self.layout = QtWidgets.QVBoxLayout(self)
 
         # store the data
         self.x = x
         self.y = y
         self.yerr = yerr
-
-        self.model = None
-        self.fit = None
 
         # create dummy fit widget
         self.fit_widget = QtWidgets.QWidget()
@@ -74,13 +79,16 @@ class MainWindow(QtWidgets.QDialog):
         self.menu_layout.addWidget(model_label)
         # combo box
         self.model_selection = pg.ComboBox(parent=self, items=self.models)
-        self.model_selection.setFixedWidth(100)
+        self.model_selection.setFixedWidth(200)
         self.model_selection.setSizePolicy(
             QtWidgets.QSizePolicy.Fixed,
             QtWidgets.QSizePolicy.Fixed,
         )
         self.model_selection.currentIndexChanged.connect(self.prepare_fit)
         self.menu_layout.addWidget(self.model_selection)
+
+        # add some spacing
+        self.menu_layout.addSpacing(20)
 
         # loss selection
         # label
@@ -92,13 +100,16 @@ class MainWindow(QtWidgets.QDialog):
         self.menu_layout.addWidget(loss_label)
         # combo box
         self.loss_selection = pg.ComboBox(parent=self, items=self.loss)
-        self.loss_selection.setFixedWidth(100)
+        self.loss_selection.setFixedWidth(200)
         self.loss_selection.setSizePolicy(
             QtWidgets.QSizePolicy.Fixed,
             QtWidgets.QSizePolicy.Fixed,
         )
         self.loss_selection.currentIndexChanged.connect(self.prepare_fit)
         self.menu_layout.addWidget(self.loss_selection)
+
+        # add some spacing
+        self.menu_layout.addStretch()
 
         # dialog buttons
         self.button_box = QtWidgets.QDialogButtonBox(parent=self)
@@ -119,14 +130,6 @@ class MainWindow(QtWidgets.QDialog):
         # create the initial fit widget
         self.prepare_fit()
 
-    def update_fit_widget(self, widget: QtWidgets.QWidget) -> None:
-        # remove the old fit widget
-        self.layout.removeWidget(self.fit_widget)
-        # set the new fit widget
-        self.fit_widget = widget
-        # insert the new fit widget at the top of the layout
-        self.layout.insertWidget(0, self.fit_widget)
-
     def prepare_fit(self) -> None:
         # get the model
         model = self.model_selection.value()
@@ -143,13 +146,19 @@ class MainWindow(QtWidgets.QDialog):
         # update the Minuit object
         self.m = Minuit(c, *vals)
 
+        # remove the old fit widget
+        self.layout.removeWidget(self.fit_widget)
+
         # update the visualization
-        fit_widget = make_widget(
+        self.fit_widget = make_widget(
             self.m, self.m._visualize(None), {}, False, False
         )
 
-        # perform a first fit
-        fit_widget.fit_button.click()
+        # insert the new fit widget at the top of the layout
+        self.layout.insertWidget(0, self.fit_widget)
 
-        # update the layout
-        self.update_fit_widget(fit_widget)
+        # perform a first fit
+        self.fit_widget.fit_button.click()
+
+    def fit_results(self) -> Minuit:
+        return self.m
