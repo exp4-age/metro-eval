@@ -57,7 +57,7 @@ def process_step(
 
             data = np.genfromtxt(
                 file_path,
-                dtype=np.float32,
+                dtype=np.float64,
                 skip_header=skip_header,
                 max_rows=max_rows,
             )
@@ -74,7 +74,7 @@ def process_step(
         channel.create_dataset(
             scan_idx,
             shape=data.shape,
-            dtype=np.float32,
+            dtype=np.float64,
             data=data,
             **compression,
         )
@@ -116,7 +116,7 @@ def process_continuous(
 
                 data = np.genfromtxt(
                     file_path,
-                    dtype=np.float32,
+                    dtype=np.float64,
                     skip_header=skip_header,
                     max_rows=max_rows,
                 )
@@ -133,7 +133,7 @@ def process_continuous(
             scan_grp.create_dataset(
                 step_val,
                 shape=data.shape,
-                dtype=np.float32,
+                dtype=np.float64,
                 data=data,
                 **compression,
             )
