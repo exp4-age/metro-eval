@@ -14,9 +14,6 @@ def analyze_words_python(events, words):
     e_counter = 0
     p_counter = 0
 
-    event_types = [key for key in events.keys() if key != "other"]
-
-
     for word_idx in range(len(words)):
         word = words[word_idx]
         type_ = word[0]
@@ -24,28 +21,48 @@ def analyze_words_python(events, words):
         if type_ == b"RL":
             n_events += 1
             # Start of a new bunch, so analyze the previous one
-            electrons = []
-            photons   = []
 
-            for i in range(e_counter):
-                electrons.append(cur_event_E[i])
-            
-            for i in range(p_counter):
-                photons.append(cur_event_P[i])
+            if e_counter == 1 and p_counter == 0:
+                events["E"].append(cur_event_E[0])
 
-            event_type = "".join(("E" * e_counter, "P" * p_counter))
+            elif e_counter == 0 and p_counter == 1:
+                events["P"].append(cur_event_P[0])
 
-            if event_type in event_types:
-                events[event_type].append(electrons + photons)
+            elif e_counter == 1 and p_counter == 1:
+                events["EP"].append([cur_event_E[0], cur_event_P[0]])
 
-            elif e_counter > 0 or p_counter > 0:
-                electrons = [str(val) for val in electrons]
-                photons = [str(val) for val in photons]
+            elif e_counter == 2 and p_counter == 0:
+                events["EE"].append(cur_event_E[:])
 
-                events['other'].append('{0}E{1}P|{2}|{3}'.format(
-                    e_counter, p_counter,
-                    ','.join(electrons), ','.join(photons)
-                ))  
+            elif e_counter == 0 and p_counter == 2:
+                events["PP"].append(cur_event_P[:])
+
+            elif e_counter == 2 and p_counter == 1:
+                events["EEP"].append(
+                    [cur_event_E[0], cur_event_E[1], cur_event_P[0]]
+                )
+
+            elif e_counter == 3 and p_counter == 0:
+                events["EEE"].append(cur_event_E[:])
+
+            elif e_counter == 4 and p_counter == 0:
+                events["EEEE"].append(cur_event_E[:])
+
+            else:
+                event_type = "".join(("E" * e_counter, "P" * p_counter))
+
+                if event_type in events:
+                    events[event_type].append(cur_event_E + cur_event_P)
+
+                elif e_counter > 0 or p_counter > 0:
+                    events["other"].append(
+                        "{0}E{1}P|{2}|{3}".format(
+                            e_counter,
+                            p_counter,
+                            ",".join([str(v) for v in cur_event_E]),
+                            ",".join([str(v) for v in cur_event_P]),
+                        )
+                    )
 
             e_counter = 0
             p_counter = 0
