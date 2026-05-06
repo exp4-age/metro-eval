@@ -101,7 +101,7 @@ def main(args) -> None:
 
     # Try to import the Cython version
     try:
-        from metro_eval.sort_events.sorting_tdc import analyze_words_native
+        from .sorting_tdc import analyze_words
 
     except ImportError:
         print("(using pure python implementation)")
@@ -109,7 +109,6 @@ def main(args) -> None:
 
     else:
         print("(using native implementation)")
-        analyze_words = analyze_words_native
 
     groups_dtype = np.dtype(
         [("type", "S2"), ("arg1", "i1"), ("arg2", "i1"), ("arg3", "<i4")]
@@ -202,6 +201,10 @@ def main(args) -> None:
                         "EP": [],
                         "EEP": [],
                     }
+
+                    for event_type in args.other:
+                        events[event_type] = []
+                        bufs[event_type] = []
 
                     word_start = 0
                     n_events = 0
