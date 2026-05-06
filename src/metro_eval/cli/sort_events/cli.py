@@ -1,7 +1,6 @@
 import time
 import glob
 from pathlib import Path
-import sys
 import numpy as np
 import h5py
 
@@ -273,7 +272,7 @@ def main(args) -> None:
 def parser(subparsers):
     parser = subparsers.add_parser(
         "sort_events",
-        description="Creates a hdf5 file containing sorted TDC events",
+        description="Creates an hdf5 file containing sorted TDC events",
     )
 
     parser.add_argument(
@@ -327,6 +326,15 @@ def parser(subparsers):
         default="EP",
         choices=["EP", "EI"],
         help="type of recorded particles, either EP or EI",
+    )
+
+    parser.add_argument(
+        "--other",
+        nargs="+",
+        type=str,
+        metavar="particles",
+        default=[],
+        help="additionally process the specified coincedence categories",
     )
 
     parser.set_defaults(func=main)
