@@ -1,0 +1,51 @@
+name: Test
+
+on:
+  pull_request:
+    paths:
+      - src/**
+      - tests/**
+      - pyproject.toml
+      - .github/workflows/test.yml
+
+jobs:
+  test:
+
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            python-version: "3.14"
+            build-mode: pure-python
+          - os: windows-latest
+            python-version: "3.14"
+            build-mode: cythonize
+          - os: ubuntu-latest
+            python-version: "3.14"
+            build-mode: cythonize
+          - os: ubuntu-latest
+            python-version: "3.13"
+            build-mode: cythonize
+          - os: ubuntu-latest
+            python-version: "3.12"
+            build-mode: cythonize
+          - os: ubuntu-latest
+            python-version: "3.11"
+            build-mode: cythonize
+      fail-fast: false
+
+    steps:
+    - uses: actions/checkout@v6
+    - uses: astral-sh/setup-uv@v7
+    - uses: actions/setup-python@v6
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install package
+      env:
+        PURE_PYTHON: ${{ matrix.build-mode == 'pure-python' && '1' || '0' }}
+      run: uv pip install --system . pytest
+    - name: Run tests
+      env:
+        PURE_PYTHON: ${{ matrix.build-mode == 'pure-python' && '1' || '0' }}
+      run: pytest
