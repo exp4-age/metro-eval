@@ -43,9 +43,9 @@ jobs:
         python-version: ${{ matrix.python-version }}
     - name: Install package
       env:
-        PURE_PYTHON: ${{ matrix.build-mode == "pure-python" && "1" || "0" }}
+        PURE_PYTHON: ${{ matrix.build-mode == 'pure-python' && '1' || '0' }}
       run: uv pip install --system . pytest
     - name: Run tests
       env:
-        PURE_PYTHON: ${{ matrix.build-mode == "pure-python" && "1" || "0" }}
+        PURE_PYTHON: ${{ matrix.build-mode == 'pure-python' && '1' || '0' }}
       run: pytest
