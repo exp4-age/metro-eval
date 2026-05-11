@@ -21,10 +21,10 @@ __all__ = [
 @dataclass(frozen=True)
 class MetroRun:
     num: str
-    data_dir: InitVar[Path | str] = field(default_factory=Path.cwd)
+    data_dir: InitVar[Path | str] = field(default=Path.cwd())
     path: Path = field(init=False)
     channels: frozenset[str] = field(init=False)
-    scans: frozenset[str] = field(init=False)
+    scans: list[str] = field(init=False)
     steps: list[str] = field(init=False)
 
     def __post_init__(self, data_dir):
@@ -39,12 +39,16 @@ class MetroRun:
             errmsg = f"Found multiple measurements with {self.num}"
             raise FileNotFoundError(errmsg)
 
-        self.path = match[0].resolve()
-        self.channels, self.scans, self.steps = self._scan()
+        object.__setattr__(self, "path", match[0].resolve())
+
+        channels, scans, steps = self._scan()
+        object.__setattr__(self, "channels", channels)
+        object.__setattr__(self, "scans", scans)
+        object.__setattr__(self, "steps", steps)
 
     def _scan(self):
-        channels, scans, steps = [], set(), set()
-        n_steps = 0
+        channels, steps = [], set()
+        n_scans, n_steps = 0, 0
 
         with h5py.File(self.path, "r") as h5f:
             for name, obj in h5f.items():
@@ -54,12 +58,21 @@ class MetroRun:
 
                 channels.append(name)
 
-                for scan_key, scan in obj.items():
-                    if isinstance(scan, h5py.Dataset):
-                        # skip datasets as there should be non here
-                        continue
+                for scan_idx in range(len(obj)):
+                    scan_key = str(scan_idx)
 
-                    scans.add(scan_key)
+                    if scan_key not in obj:
+                        break
+
+                    if scan_idx + 1 > n_scans:
+                        n_scans = scan_idx + 1
+
+                    scan = obj[scan_key]
+
+                    if isinstance(scan, h5py.Dataset):
+                        # 'step' data is stored in a single dataset
+                        # without step labels
+                        continue
 
                     if len(scan) <= n_steps:
                         continue
@@ -73,11 +86,13 @@ class MetroRun:
                         n_steps += 1
                         steps.add(step_key)
 
-        if "0" not in scans:
-            errmsg = f"Scan '0' not found in {self.num}"
+        if n_scans == 0:
+            errmsg = f"No scans found in {self.num}"
             raise ValueError(errmsg)
 
-        return frozenset(channels), frozenset(scans), sorted(steps)
+        scans = [str(i) for i in range(n_scans)]
+
+        return frozenset(channels), scans, sorted(steps)
 
     def _read_dset(
         self, h5f: h5py.File, channel: str, scan: str, step: str
@@ -86,15 +101,28 @@ class MetroRun:
             errmsg = f"Channel {channel} not found in {self.num}"
             raise ValueError(errmsg)
 
-        if scan not in h5f[channel]:
+        scans = h5f[channel]
+
+        if scan not in scans:
             errmsg = f"Scan {scan} not found in {self.num}/{channel}"
             raise ValueError(errmsg)
 
-        if step not in h5f[channel][scan]:
+        steps = scans[scan]
+
+        if isinstance(steps, h5py.Dataset):
+            try:
+                idx = self.steps.index(step)
+            except ValueError:
+                errmsg = f"Step {step} not found in {self.num}/{channel}"
+                raise ValueError(errmsg) from None
+
+            return steps[idx]
+
+        if step not in steps:
             errmsg = f"Step {step} not found in {self.num}/{channel}"
             raise ValueError(errmsg)
 
-        return np.array(h5f[channel][scan][step], order="F").squeeze()
+        return np.array(steps[step], order="F").squeeze()
 
     def __call__(
         self, channel: str, scan: str = "0", step: str | None = None
