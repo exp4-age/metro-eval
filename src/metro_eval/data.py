@@ -203,20 +203,13 @@ class MetroEvents(MetroRun):
         n_steps, n_channels = 0, 0
 
         with h5py.File(self.path, "r") as h5f:
-            for name, obj in h5f.items():
-                if isinstance(obj, h5py.Dataset):
-                    # skip datasets as there should be non here
-                    continue
-
-                channels.append(name)
-
-            for scan_idx in range(len(obj)):
+            for scan_idx in range(len(h5f)):
                 scan_key = str(scan_idx)
 
-                if scan_key not in obj:
+                if scan_key not in h5f:
                     break
 
-                scan = obj[scan_key]
+                scan = h5f[scan_key]
 
                 if isinstance(scan, h5py.Dataset):
                     errmsg = f"Scan {scan_key} is a dataset in {self.num}"
@@ -282,4 +275,11 @@ class MetroEvents(MetroRun):
             errmsg = f"Channel {channel} not found in {self.num}"
             raise ValueError(errmsg)
 
+        if channel == "other":
+            return self._read_other(h5f, scan, step)
+
         return np.array(channels[channel], order="F").squeeze()
+
+    def _read_other(self, h5f: h5py.File, scan: str, step: str) -> NDArray:
+        errmsg = "Reading 'other' channel is not implemented"
+        raise NotImplementedError(errmsg)
