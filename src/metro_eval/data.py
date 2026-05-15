@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import warnings
-from contextlib import contextmanager
+from dataclasses import dataclass, field, InitVar
+from functools import Placeholder, partial
 from pathlib import Path
 import h5py
 import numpy as np
@@ -14,342 +14,272 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
 __all__ = [
-    "load_all",
-    "load_beamtime",
-    "load_measurement",
-    "open_metro_h5",
+    "MetroData",
+    "MetroRun",
+    "MetroEvents",
 ]
 
 
-def load_all(
-    glob_dir: str | Path = ".",
-    data_dir: str | None = None,
-    pattern: str = "[2-9][0-9][0-9][0-9]-[0-1][1-9]-*-*",
-) -> dict[str, dict[str, callable]]:
-    """Load all beamtimes in the specified directory.
+@dataclass()
+class MetroData:
+    data_dir: InitVar[Path | str | None] = field(default=None)
+    event_dir: InitVar[Path | str | None] = field(default=None)
+    runs: dict[str, MetroRun] = field(init=False)
+    events: dict[str, MetroEvents] = field(init=False)
 
-    Parameters
-    ----------
-    glob_dir: str or Path, optional
-        The specified path is glob'ed recursively for
-        beamtime directories following the the naming
-        convention 'yyyy-mm-facility-topic'.
-    data_dir: str, optional
-        Directory relative to the beamtime directories
-        containing the hdf5 files (e.g. 'events' or 'data').
+    def __post_init__(self, data_dir, event_dir):
+        if data_dir is None and event_dir is None:
+            data_dir = Path.cwd()
 
-    Returns
-    -------
-    dict
-        Dictionary with beamtime names as keys and
-        beamtime dictionaries as values (see `load_beamtime`).
-
-    """
-    if not isinstance(glob_dir, Path):
-        glob_dir = Path(glob_dir)
-
-    beamtimes = {}
-
-    if glob_dir.match(pattern):
-        matches = [glob_dir]
-
-    else:
-        matches = list(glob_dir.rglob(pattern))
-
-    for match in matches:
-        if not match.is_dir():
-            continue
-
-        beamtime = match.resolve().name
+        self.runs = {}
+        self.events = {}
 
         if data_dir is not None:
-            match = match / data_dir
+            data_dir = Path(data_dir).resolve()
 
-            if not match.is_dir():
+            for num, file_path in self._scan_dir(data_dir):
+                self.runs[num] = MetroRun(num, data_dir=file_path)
+
+        if event_dir is not None:
+            event_dir = Path(event_dir).resolve()
+
+            for num, file_path in self._scan_dir(event_dir):
+                self.events[num] = MetroEvents(num, data_dir=file_path)
+
+    def _scan_dir(self, data_dir: Path):
+        for num_digits in range(1, 5):
+            pattern = "".join(["[0-9]"] * num_digits) + "_*.h5"
+
+            # get matching files
+            matches = list(data_dir.glob(pattern))
+
+            if len(matches) == 0:
                 continue
 
-        beamtimes[beamtime] = load_beamtime(match)
-
-    return beamtimes
-
-
-def load_beamtime(data_dir: str | Path = ".") -> dict[str, callable]:
-    """Load all measurments of a single beamtime.
-
-    Parameters
-    ----------
-    data_dir: str or Path, optional
-        Path to the directory containing the hdf5 files.
-
-    Returns
-    -------
-    dict
-        Dictionary with measurement numbers as keys and
-        a loader function as values (see `load_measurement`).
-
-    """
-    if not isinstance(data_dir, Path):
-        data_dir = Path(data_dir)
-
-    data_dir = data_dir.resolve()
-
-    measurements = {}
-
-    for num_digits in range(1, 5):
-        pattern = "".join(["[0-9]"] * num_digits) + "_*.h5"
-
-        # Get matching files
-        matches = list(data_dir.glob(pattern))
-
-        if len(matches) == 0:
-            continue
-
-        for match in matches:
-            num = match.name[:num_digits]
-            measurements[num] = load_measurement(num, match.parent)
-
-    return measurements
+            for match in matches:
+                yield match.name[:num_digits], match
 
 
-def load_measurement(
-    num: str, data_dir: str | Path = "."
-) -> callable[[str, str, str | None], dict[str, NDArray] | NDArray]:
-    """Load data from an hdf5 file created by metro2hdf.
-
-    Parameters
-    ----------
+@dataclass(frozen=True)
+class MetroRun:
     num: str
-        Metro measurement number (e.g. `"042"`).
-    data_dir: str or Path, optional
-        Path to the directory containing the hdf5 file.
+    data_dir: InitVar[Path | str] = field(default=Path.cwd())
+    path: Path = field(init=False)
+    channels: frozenset[str] = field(init=False)
+    scans: list[str] = field(init=False)
+    steps: list[str] = field(init=False)
 
-    Returns
-    -------
-    callable
-        Loader function.
-
-    Examples
-    --------
-    >>> data = metroload("042", data_dir="2024-07-BESSY-H2/")
-    >>> spec = data("dld_rd#raw", step_key="12.269")
-
-    """
-    # Cache once loaded data for faster return next time
-    cache = {}
-
-    if not isinstance(data_dir, Path):
+    def __post_init__(self, data_dir):
         data_dir = Path(data_dir)
 
-    # Get matching file path
-    match = list(data_dir.glob(f"{num}_*.h5"))
+        if data_dir.is_file():
+            if not data_dir.name.startswith(self.num + "_"):
+                errmsg = f"File {data_dir} does not match run {self.num}"
+                raise ValueError(errmsg)
 
-    if len(match) == 0:
-        errmsg = f"Could not find measurement {num}"
-        raise FileNotFoundError(errmsg)
+            if not data_dir.name.endswith(".h5"):
+                errmsg = f"File {data_dir} is not an hdf5 file"
+                raise ValueError(errmsg)
 
-    if len(match) > 1:
-        errmsg = f"Found multiple measurements with {num}"
-        raise FileNotFoundError(errmsg)
+            object.__setattr__(self, "path", data_dir.resolve())
 
-    data_file = match[0].resolve()
+        else:
+            # get matching file path
+            match = list(Path(data_dir).glob(f"{self.num}_*.h5"))
 
-    def loader(
-        data_key: str, scan_key: str = "0", step_key: str | None = None
-    ) -> dict[str, NDArray] | NDArray:
-        """Loads specified data from the hdf5 file.
+            if len(match) == 0:
+                errmsg = f"Could not find measurement {self.num}"
+                raise FileNotFoundError(errmsg)
 
-        When one or all steps for one data key are loaded all steps
-        are cached for future calls.
+            if len(match) > 1:
+                errmsg = f"Found multiple measurements with {self.num}"
+                raise FileNotFoundError(errmsg)
 
-        Parameters
-        ----------
-        data_key: str
-            Name of the metro data stream (e.g. `"device#value"`).
-        scan_key: str, optional
-            Index of the scan to be loaded. Usually `"0"` in case of
-            measurements with one or no scan.
-        step_key: str, optional
-            Index of the step to be loaded. If `None` all datasets
-            in the scan are returned.
+            object.__setattr__(self, "path", match[0].resolve())
 
-        Returns
-        -------
-        dict or np.ndarray
-            Dictionary of names (step values) and corresponding
-            datasets or a single dataset if `step_key` is specified.
+        channels, scans, steps = self._scan()
+        object.__setattr__(self, "channels", channels)
+        object.__setattr__(self, "scans", scans)
+        object.__setattr__(self, "steps", steps)
 
-        """
-        if data_key in cache and scan_key in cache[data_key]:
-            if len(cache[data_key][scan_key]) == 1:
-                return next(iter(cache[data_key][scan_key].values()))
+    def _scan(self):
+        channels, steps = [], set()
+        n_scans, n_steps = 0, 0
 
-            elif step_key is None:
-                return cache[data_key][scan_key].copy()
+        with h5py.File(self.path, "r") as h5f:
+            for name, obj in h5f.items():
+                if isinstance(obj, h5py.Dataset):
+                    # skip datasets as there should be non here
+                    continue
 
-            elif step_key in cache[data_key][scan_key]:
-                return cache[data_key][scan_key][step_key]
+                channels.append(name)
 
-            else:
-                errmsg = f"Could not find {step_key} in {num}"
-                raise KeyError(errmsg)
+                for scan_idx in range(len(obj)):
+                    scan_key = str(scan_idx)
 
-        with h5py.File(data_file, "r") as h5f:
-            if contains_sorted_events(h5f):
-                data = load_sorted_events(h5f, data_key, scan_key=scan_key)
+                    if scan_key not in obj:
+                        break
 
-            else:
-                data = load_data_stream(h5f, data_key, scan_key=scan_key)
+                    if scan_idx + 1 > n_scans:
+                        n_scans = scan_idx + 1
 
-        # Update the cache
-        cache.update({data_key: {scan_key: data}})
+                    scan = obj[scan_key]
 
-        return loader(data_key, scan_key=scan_key, step_key=step_key)
+                    if isinstance(scan, h5py.Dataset):
+                        # 'step' data is stored in a single dataset
+                        # without step labels
+                        continue
 
-    return loader
+                    if len(scan) <= n_steps:
+                        continue
 
+                    n_steps = 0
 
-@contextmanager
-def open_metro_h5(num: str, data_dir: str | Path = ".") -> h5py.File:
-    """Open an hdf5 file produced by metro2hdf.
+                    for step_key, step in scan.items():
+                        if not isinstance(step, h5py.Dataset):
+                            continue
 
-    Convenience wrapper around h5py.File for easier access using
-    the measurement number to glob the hdf5 file in the specified
-    directory.
+                        n_steps += 1
+                        steps.add(step_key)
 
-    Parameters
-    ----------
-    num: str
-        Metro measurement number (e.g. `"042"`).
-    data_dir: str, optional
-        Path to the directory containing the hdf5 file.
+        if n_scans == 0:
+            errmsg = f"No scans found in {self.num}"
+            raise ValueError(errmsg)
 
-    Yields
-    ------
-    h5py.File
-        Open hdf5 file.
+        scans = [str(i) for i in range(n_scans)]
 
-    """
-    # Create a Path instance
-    if isinstance(data_dir, str):
-        data_dir = Path(data_dir)
+        return frozenset(channels), scans, sorted(steps)
 
-    # glob pattern
-    pattern = f"{num}*.h5"
+    def _read_dset(
+        self, h5f: h5py.File, channel: str, scan: str, step: str
+    ) -> NDArray:
+        if channel not in h5f:
+            errmsg = f"Channel {channel} not found in {self.num}"
+            raise ValueError(errmsg)
 
-    # Get matching file path
-    match = list(data_dir.glob(pattern))
+        scans = h5f[channel]
 
-    if len(match) == 0:
-        errmsg = f"Could not find measurement {num}"
-        raise FileNotFoundError(errmsg)
+        if scan not in scans:
+            errmsg = f"Scan {scan} not found in {self.num}/{channel}"
+            raise ValueError(errmsg)
 
-    with h5py.File(match[0].resolve(), "r") as h5f:
-        yield h5f
+        steps = scans[scan]
 
+        if isinstance(steps, h5py.Dataset):
+            try:
+                idx = self.steps.index(step)
+            except ValueError:
+                errmsg = f"Step {step} not found in {self.num}/{channel}"
+                raise ValueError(errmsg) from None
 
-def contains_sorted_events(h5f: h5py.File) -> bool:
-    return "0" in h5f
+            return steps[idx]
 
+        if step not in steps:
+            errmsg = f"Step {step} not found in {self.num}/{channel}"
+            raise ValueError(errmsg)
 
-def load_data_stream(
-    h5f: h5py.File,
-    data_key: str,
-    scan_key: str = "0",
-) -> dict[str, NDArray]:
-    """Load 'continuous' metro data streams from a scan
-    in an open hdf5 file.
+        return np.array(steps[step], order="F").squeeze()
 
-    Parameters
-    ----------
-    h5f: h5py.File
-        Open hdf5 file (see `open_metro_h5`).
-    data_key: str
-        Name of the metro data stream (e.g. `"device#value"`).
-    scan_key: str, optional
-        Index of the scan to be loaded. Usually `"0"` in case of
-        measurements with one or no scan.
+    def __call__(
+        self, channel: str, scan: str = "0", step: str | None = None
+    ) -> NDArray:
+        if step is None:
+            step = self.steps[0]
 
-    Returns
-    -------
-    dict
-        Dictionary of names (step values) and corresponding
-        datasets.
+        with h5py.File(self.path, "r") as h5f:
+            return self._read_dset(h5f, channel, scan, step)
 
-    """
-    # Check if the data stream is found
-    if data_key not in h5f:
-        errmsg = f"Could not find channel {data_key} in {h5f.filename}"
-        raise KeyError(errmsg)
-
-    # Check if the data is a continuous data stream (metro)
-    if "Frequency" not in h5f[data_key].attrs:
-        errmsg = f"Channel {data_key} is missing 'Frequency' attribute in {h5f.filename}"
-        raise ValueError(errmsg)
-
-    if h5f[data_key].attrs["Frequency"] != "continuous":
-        errmsg = (
-            f"Channel {data_key} data is not 'continuous' in {h5f.filename}"
-        )
-        raise ValueError(errmsg)
-
-    # Check if the scan index is present
-    if scan_key not in h5f[data_key]:
-        errmsg = f"Could not find scan {data_key}/{scan_key} in {h5f.filename}"
-        raise KeyError(errmsg)
-
-    data = {}
-
-    for step_key, dset in h5f[data_key][scan_key].items():
-        if dset.size == 0:
-            wrnmsg = f"Empty step {data_key}/{scan_key}/{step_key} in {h5f.filename}"
-            warnings.warn(wrnmsg, stacklevel=1)
-            continue
-
-        data[step_key] = np.array(dset, order="F").squeeze()
-
-    return data
+    def read_steps(self, scan: str = "0"):
+        with h5py.File(self.path, "r") as h5f:
+            for step in self.steps:
+                reader = partial(self._read_dset, h5f, Placeholder, scan, step)
+                yield step, reader
 
 
-def load_sorted_events(
-    h5f: h5py.File,
-    data_key: str,
-    scan_key: str = "0",
-) -> dict[str, NDArray]:
-    """Load coincidence data from sorted events.
+@dataclass(frozen=True)
+class MetroEvents(MetroRun):
+    def _scan(self):
+        channels, scans, steps = set(), [], set()
+        n_steps, n_channels = 0, 0
 
-    If a step index `step_key` is specified, the data is
-    returned as a single `np.ndarray`.
+        with h5py.File(self.path, "r") as h5f:
+            for scan_idx in range(len(h5f)):
+                scan_key = str(scan_idx)
 
-    Parameters
-    ----------
-    h5f: h5py.File
-        Open hdf5 file (see `open_metro_h5`).
-    data_key: str
-        Type of coincedences (e.g. `"EEP"`).
-    scan_key: str, optional
-        Index of the scan to be loaded. Usually `"0"` in case of
-        measurements with one or no scan.
+                if scan_key not in h5f:
+                    break
 
-    Returns
-    -------
-    dict
-        Dictionary of names (step values) and corresponding
-        datasets.
+                scan = h5f[scan_key]
 
-    """
-    # Check if the scan index is present
-    if scan_key not in h5f:
-        errmsg = f"Could not find scan {scan_key} in {h5f.filename}"
-        raise KeyError(errmsg)
+                if isinstance(scan, h5py.Dataset):
+                    errmsg = f"Scan {scan_key} is a dataset in {self.num}"
+                    raise ValueError(errmsg)
 
-    data = {}
+                scans.append(scan_key)
 
-    for step_key, step_group in h5f[scan_key].items():
-        if data_key not in step_group:
-            wrnmsg = f"Could not find {scan_key}/{step_key}/{data_key} in {h5f.filename}"
-            warnings.warn(wrnmsg, stacklevel=1)
-            continue
+                if len(scan) <= n_steps:
+                    continue
 
-        data[step_key] = np.array(step_group[data_key], order="F").squeeze()
+                n_steps = 0
 
-    return data
+                for step_key, step in scan.items():
+                    if isinstance(step, h5py.Dataset):
+                        # there should be no datasets here
+                        continue
+
+                    n_steps += 1
+                    steps.add(step_key)
+
+                    if len(step) <= n_channels:
+                        continue
+
+                    n_channels = 0
+
+                    for channel_key, channel in step.items():
+                        if not isinstance(channel, h5py.Dataset):
+                            continue
+
+                        n_channels += 1
+                        channels.add(channel_key)
+
+        if len(scans) == 0:
+            errmsg = f"No scans found in {self.num}"
+            raise ValueError(errmsg)
+
+        if len(steps) == 0:
+            errmsg = f"No steps found in {self.num}"
+            raise ValueError(errmsg)
+
+        if len(channels) == 0:
+            errmsg = f"No channels found in {self.num}"
+            raise ValueError(errmsg)
+
+        return frozenset(channels), scans, sorted(steps)
+
+    def _read_dset(
+        self, h5f: h5py.File, channel: str, scan: str, step: str
+    ) -> NDArray:
+        if scan not in h5f:
+            errmsg = f"Scan {scan} not found in {self.num}"
+            raise ValueError(errmsg)
+
+        steps = h5f[scan]
+
+        if step not in steps:
+            errmsg = f"Step {step} not found in {self.num}/{scan}"
+            raise ValueError(errmsg)
+
+        channels = steps[step]
+
+        if channel not in channels:
+            errmsg = f"Channel {channel} not found in {self.num}"
+            raise ValueError(errmsg)
+
+        if channel == "other":
+            return self._read_other(h5f, scan, step)
+
+        return np.array(channels[channel], order="F").squeeze()
+
+    def _read_other(self, h5f: h5py.File, scan: str, step: str) -> NDArray:
+        errmsg = "Reading 'other' channel is not implemented"
+        raise NotImplementedError(errmsg)
