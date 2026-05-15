@@ -1,24 +1,22 @@
 from setuptools import Extension, setup
-from Cython.Build import cythonize
-import numpy
-import os
 
-ext_modules = []
+try:
+    from Cython.Build import cythonize
+    import numpy
 
-PURE_PYTHON = os.environ.get("PURE_PYTHON") == "1"
+except ImportError:
+    ext_modules = []
 
-if not PURE_PYTHON:
+else:
     sorting_tdc = Extension(
         name="metro_eval.cli.sort_events.sorting_tdc",
         sources=["src/metro_eval/cli/sort_events/sorting_tdc.pyx"],
         include_dirs=[numpy.get_include()],
-        optional=True,
     )
 
     index_ascii = Extension(
         name="metro_eval.cli.metro2hdf._index_ascii",
         sources=["src/metro_eval/cli/metro2hdf/_index_ascii.py"],
-        optional=True,
     )
 
     ext_modules = cythonize([sorting_tdc, index_ascii])
