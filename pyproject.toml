@@ -25,6 +25,9 @@ dependencies = [
     "pyqtgraph>=0.14.0",
     "pyside6>=6.10.2",
     "rich>=14.2.0",
+	"matplotlib>=3.10.9",
+	"lmfit>=1.3.4",
+	"scipy>=1.17.1"
 ]
 
 [project.scripts]
