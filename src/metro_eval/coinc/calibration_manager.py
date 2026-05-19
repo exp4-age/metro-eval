@@ -31,7 +31,6 @@ from lmfit.models import GaussianModel, ConstantModel
 import tkinter as tk
 from tkinter import filedialog, ttk
 import datetime
-import yaml
 
 from . import models
 from .file_handler import get_keys, read_coinc

@@ -9,3 +9,5 @@ build/
 *.so
 *.c
 uv.lock
+.venv/
+
