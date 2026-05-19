@@ -38,13 +38,13 @@ class MetroData:
             data_dir = Path(data_dir).resolve()
 
             for num, file_path in self._scan_dir(data_dir):
-                self.runs[num] = MetroRun(num, data_dir=file_path)
+                self.runs[num] = MetroRun(file_path)
 
         if event_dir is not None:
             event_dir = Path(event_dir).resolve()
 
             for num, file_path in self._scan_dir(event_dir):
-                self.events[num] = MetroEvents(num, data_dir=file_path)
+                self.events[num] = MetroEvents(file_path)
 
     def _scan_dir(self, data_dir: Path):
         for num_digits in range(1, 5):
@@ -62,30 +62,48 @@ class MetroData:
 
 @dataclass(frozen=True)
 class MetroRun:
-    num: str
-    data_dir: InitVar[Path | str] = field(default=Path.cwd())
+    run: InitVar[str | Path | tuple[str, Path] | tuple[str, str]]
     path: Path = field(init=False)
     channels: frozenset[str] = field(init=False)
     scans: list[str] = field(init=False)
     steps: list[str] = field(init=False)
 
-    def __post_init__(self, data_dir):
-        data_dir = Path(data_dir)
+    def __post_init__(self, run):
+        if isinstance(run, str):
+            if run.endswith(".h5"):
+                run = Path(run)
 
-        if data_dir.is_file():
-            if not data_dir.name.startswith(self.num + "_"):
-                errmsg = f"File {data_dir} does not match run {self.num}"
+            else:
+                run = (run, Path.cwd())
+
+        if isinstance(run, Path):
+            if not run.name.endswith(".h5"):
+                errmsg = f"File {run} is not an hdf5 file"
                 raise ValueError(errmsg)
 
-            if not data_dir.name.endswith(".h5"):
-                errmsg = f"File {data_dir} is not an hdf5 file"
+            object.__setattr__(self, "path", run.resolve())
+
+        elif isinstance(run, tuple):
+            if len(run) != 2:
+                errmsg = f"Run tuple must have 2 elements, got {len(run)}"
                 raise ValueError(errmsg)
 
-            object.__setattr__(self, "path", data_dir.resolve())
+            if not isinstance(run[0], str):
+                errmsg = (
+                    "First element of run tuple must be a string, "
+                    f"got {type(run[0])}"
+                )
+                raise ValueError(errmsg)
 
-        else:
+            if not isinstance(run[1], (str, Path)):
+                errmsg = (
+                    "Second element of run tuple must be a string or "
+                    f"Path, got {type(run[1])}"
+                )
+                raise ValueError(errmsg)
+
             # get matching file path
-            match = list(Path(data_dir).glob(f"{self.num}_*.h5"))
+            match = list(Path(run[1]).glob(f"{run[0]}_*.h5"))
 
             if len(match) == 0:
                 errmsg = f"Could not find measurement {self.num}"
@@ -96,6 +114,10 @@ class MetroRun:
                 raise FileNotFoundError(errmsg)
 
             object.__setattr__(self, "path", match[0].resolve())
+
+        else:
+            errmsg = f"Invalid run specification: {run}"
+            raise ValueError(errmsg)
 
         channels, scans, steps = self._scan()
         object.__setattr__(self, "channels", channels)
