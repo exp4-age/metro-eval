@@ -104,6 +104,7 @@ class MainWindow(QMainWindow):
 
         post_group = QGroupBox("Postprocessing")
         post_layout = QHBoxLayout()
+        # What? I can be deleted 
 
         # CALIBRATION BOX
 
