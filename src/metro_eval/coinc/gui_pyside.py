@@ -1,3 +1,4 @@
+import os
 import sys
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -20,6 +21,9 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QFrame,
 )
+import numpy as np
+
+from metro_eval.coinc.file_handler import get_keys, read_coinc
 
 
 class FilterRow(QWidget):
@@ -59,6 +63,17 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("Analysis GUI")
         self.resize(1000, 850)
+
+
+        # =========================
+        # STORING VARIABLES
+        # =========================
+
+        self.file_path = None
+
+        self.data_raw = None
+        self.data_calibrated = None
+        self.data_current = None
 
         # =========================
         # CENTRAL WIDGET
@@ -104,7 +119,6 @@ class MainWindow(QMainWindow):
 
         post_group = QGroupBox("Postprocessing")
         post_layout = QHBoxLayout()
-        # What? I can be deleted 
 
         # CALIBRATION BOX
 
@@ -325,11 +339,11 @@ class MainWindow(QMainWindow):
         main_layout.addLayout(right_panel, 1)
 
     # ======================================
-    # FUNCTIONS
+    # BUTTON FUNCTIONS
     # ======================================
 
     def browse_file(self):
-        file_path, _ = QFileDialog.getOpenFileName(
+        file_path, _ = QFileDialog.getOpenFileNames(
             self,
             "Select file",
             "",
@@ -337,7 +351,50 @@ class MainWindow(QMainWindow):
         )
 
         if file_path:
-            self.file_label.setText(file_path)
+            self.file_path = list(file_path)
+            label=""
+            for file in file_path:
+                label += os.path.basename(file)+", "
+            label = label[:-2]
+            self.file_label.setText(label)
+
+            # Populate the dropdown with the keys from the files
+            keys=self.load_keys_from_file()
+            self.dataset_combo.clear()
+            self.dataset_combo.addItems(keys)
+
+    def load_data(self):
+        '''
+        
+        Read the data of the selected files, from the selected coincidence
+        key into self.data
+        Also store it in self.current_data and self.data_postproc
+        
+        '''
+        arrays = []
+        key = self.dataset_combo.Text()
+        
+        for path in self.file_path:
+            arr = read_coinc(path, key)
+            arrays.append(arr)
+        self.data_raw = np.concatenate(arrays, axis=0)
+        
+        self.data_current = self.data_raw
+        self.data_postproc = self.data_raw
+        self.data_calibrated = self.data_raw
+        '''
+        label_old = self.file_label.text()
+        if "Loaded" in self.file_label.text():
+            label = label_old
+        elif label_old == self.file_label.text():
+            label = f"Select a file to load {key} data"
+        else:
+            label = f"Loaded {key} data from {label_old}"
+        self.file_label.setText(label)
+        '''
+
+        # self.update_plot_columns()
+    
 
     def add_filter(self):
         row = FilterRow()
@@ -351,6 +408,25 @@ class MainWindow(QMainWindow):
     def remove_filter(self, row):
         row.setParent(None)
         row.deleteLater()
+
+    
+    # ======================================
+    # HELPER FUNCTIONS
+    # ======================================
+
+    def load_keys_from_file(self):
+
+        list_of_key_lists = []
+        for file in self.file_path:
+            list_of_key_lists.append(get_keys(file))
+        
+        key_list = []
+        for lst in list_of_key_lists:
+            key_list += lst
+            
+        key_set = list(dict.fromkeys(key_list))
+        
+        return key_set
 
 
 # ==========================================
@@ -371,12 +447,7 @@ def start(blocking: bool = True):
 
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-
-    window = MainWindow()
-    window.show()
-
-    sys.exit(app.exec())
+    start()
 
 
 
