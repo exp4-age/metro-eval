@@ -1,3 +1,3 @@
-from ._interactive import interactive
+from .plot import interactive
 
 __all__ = ["interactive"]

@@ -7,17 +7,16 @@ import numpy as np
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from numpy.typing import ArrayLike
+    from numpy.typing import ArrayLike, NDArray
 
 
 def interactive(
-    data: np.ndarray,
+    data: NDArray,
     bins: int | tuple[int, int] = 50,
     range: ArrayLike | None = None,  # noqa
     xlabel: str = "first electron",
     ylabel: str = "second electron",
     units: str | None = None,
-    blocking: bool = True,
 ) -> CoincWidget:
     # get the Qt application
     app = QtWidgets.QApplication.instance()
@@ -36,11 +35,9 @@ def interactive(
         units=units,
     )
     coinc.show()
-    app.processEvents()
 
-    if blocking:
-        # start the event loop
-        app.exec()
+    # start the event loop
+    app.exec()
 
     return coinc
 
@@ -48,7 +45,7 @@ def interactive(
 class CoincWidget(QtWidgets.QWidget):
     def __init__(
         self,
-        data: np.ndarray,
+        data: NDArray,
         bins: int = 50,
         range: ArrayLike | None = None,  # noqa
         xlabel: str = "first electron",
@@ -310,3 +307,95 @@ class CoincWidget(QtWidgets.QWidget):
         else:
             self.update_xroi(None, (self.xe[0], self.xe[-1]))
             self.update_yroi(None, (self.ye[0], self.ye[-1]))
+
+
+class SpecWidget(QtWidgets.QWidget):
+    def __init__(
+        self,
+        data: NDArray,
+        bins: int = 50,
+        range: ArrayLike | None = None,  # noqa
+        xlabel: str = "first electron",
+        units: str | None = None,
+    ) -> None:
+        super().__init__()
+        self.setWindowTitle("metro-eval - spec")
+        self.resize(800, 600)
+        self.layout = QtWidgets.QVBoxLayout(self)
+
+        # set the font
+        font = QtGui.QFont()
+        font.setPointSize(11)
+        self.setFont(font)
+        self.css_style = {"font-size": "11pt"}
+
+        # store the data
+        self.data = data
+
+        # bin the data
+        hist, self.xe = np.histogram(data, bins=bins, range=range)
+
+        # create the menu layout
+        self.menu_layout = QtWidgets.QHBoxLayout()
+        self.layout.addLayout(self.menu_layout)
+        self.menu_layout.addStretch()
+        self._add_bins()
+        self.menu_layout.addStretch()
+
+        # create the plot layout
+        self.plot_layout = pg.GraphicsLayoutWidget()
+        self.plot_layout.setBackground("white")
+        self.layout.addWidget(self.plot_layout)
+        self._add_spec(xlabel, units)
+
+        # plot the data
+        self.update_binning()
+
+        # connect signals
+        self.bins.sigValueChanged.connect(self.update_binning)
+
+    def _add_bins(self):
+        label = QtWidgets.QLabel("bins:")
+        label.setSizePolicy(
+            QtWidgets.QSizePolicy.Fixed,
+            QtWidgets.QSizePolicy.Fixed,
+        )
+        self.menu_layout.addWidget(label)
+        self.bins = pg.SpinBox(
+            parent=self,
+            value=len(self.xe) - 1,
+            bounds=(1, None),
+            step=10,
+            int=True,
+            compactHeight=False,
+        )
+        self.bins.setSizePolicy(
+            QtWidgets.QSizePolicy.Fixed,
+            QtWidgets.QSizePolicy.Fixed,
+        )
+        self.menu_layout.addWidget(self.bins)
+
+    def _add_spec(self, xlabel, units):
+        self.plot = self.plot_layout.addPlot(row=0, col=0, name="spec")
+        self.plot.setLabel(
+            "bottom", text=xlabel, units=units, **self.css_style
+        )
+        self.plot.setLabel("left", text="counts", **self.css_style)
+        self.plot.setXRange(self.xe[0], self.xe[-1])
+        self.plot.setLimits(xMin=self.xe[0], xMax=self.xe[-1], yMin=0)
+        self.hist = pg.BarGraphItem(
+            height=0,
+            x0=self.xe[:-1],
+            x1=self.xe[1:],
+            pen=pg.mkPen("#0868ac"),
+            brush=pg.mkBrush("#f0f9e8"),
+        )
+        self.plot.addItem(self.hist)
+
+    def update_binning(self) -> None:
+        # get the new binning
+        bins = self.bins.value()
+        xr = [self.xe[0], self.xe[-1]]
+        # update the histogram
+        hist, self.xe = np.histogram(self.data, bins=bins, range=xr)
+        self.hist.setOpts(height=hist, x0=self.xe[:-1], x1=self.xe[1:])
