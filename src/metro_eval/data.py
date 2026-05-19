@@ -1,4 +1,4 @@
-"""Load data from hdf5 files created by metro2hdf."""
+"""Load data from hdf5 files created by metro2hdf and sort_events."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ import numpy as np
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from numpy.typing import NDArray
 
 __all__ = [
@@ -22,6 +23,35 @@ __all__ = [
 
 @dataclass()
 class MetroData:
+    """Find all metro runs and event data in the given directories
+    and scan the files for available channels, scans, and steps.
+
+    .. warning:: If more than one file with the same run number is
+        present in the directory, all are scanned but only the last
+        one is kept in the `runs` and `events` dictionaries.
+
+    .. warning:: A given `data_dir` must only contain hdf5 files
+        created by metro2hdf, and a given `event_dir` must only
+        contain hdf5 files created by sort_events.
+
+    Parameters
+    ----------
+    data_dir : Path | str | None, optional
+        Directory to search for metro run data files.
+    event_dir : Path | str | None, optional
+        Directory to search for metro event data files.
+
+    Attributes
+    ----------
+    runs : dict[str, MetroRun]
+        Dictionary mapping run numbers to MetroRun objects for the
+        found run data files.
+    events : dict[str, MetroEvents]
+        Dictionary mapping run numbers to MetroEvents objects for
+        the found event data files.
+
+    """
+
     data_dir: InitVar[Path | str | None] = field(default=None)
     event_dir: InitVar[Path | str | None] = field(default=None)
     runs: dict[str, MetroRun] = field(init=False)
@@ -62,6 +92,59 @@ class MetroData:
 
 @dataclass(frozen=True)
 class MetroRun:
+    """Load metro data from an hdf5 file created by metro2hdf.
+
+    The hdf5 file should have the following structure:
+    - channel_1
+        - scan_1
+            - step_1 (dataset)
+            - step_2 (dataset)
+            - ...
+        - scan_2
+            - step_1 (dataset)
+            - step_2 (dataset)
+            - ...
+        - ...
+    - ...
+
+    Upon initialization, the file is scanned to determine the available
+    channels, scans, and steps.
+    Actual data is only read and loaded into memory when requested by
+    calling `__call__` or `read_steps`.
+
+    .. warning:: The scan does not guarantee that all combinations of
+        channels, scans, and steps are present in the file (e.g. in
+        case of missing data).
+
+    .. note:: glob'ing for the hdf5 file with the run number will fail
+        if more than one file with the same run number is present in
+        the directory.
+
+    Parameters
+    ----------
+    run : str | Path | tuple[str, Path] | tuple[str, str]
+        The hdf5 file containing the metro data can be specified with:
+        - a string or Path pointing directly to the hdf5 file
+        - a tuple of (num, dir) where num is the measurement number and
+          dir is the directory containing the hdf5 file. The file is
+          expected to be named {num}_*.h5.
+        - a string num interpreted as a measurement number which
+          is searched for in the current working directory.
+
+    Attributes
+    ----------
+    path : Path
+        Path to the hdf5 file containing the metro data
+    channels : frozenset[str]
+        Data channels in the hdf5 file (e.g. "dld_rd#raw")
+    scans : list[str]
+        Scans in the hdf5 file with names "0", "1", etc.
+    steps : list[str]
+        Steps within a scan with the value of the scan variable
+        as the name (typically "0.0" for single step runs)
+
+    """
+
     run: InitVar[str | Path | tuple[str, Path] | tuple[str, str]]
     path: Path = field(init=False)
     channels: frozenset[str] = field(init=False)
@@ -205,13 +288,54 @@ class MetroRun:
     def __call__(
         self, channel: str, scan: str = "0", step: str | None = None
     ) -> NDArray:
+        """Read data for the given data channel, scan, and step.
+
+        Parameters
+        ----------
+        channel : str
+            Data channel to read (e.g. "dld_rd#raw")
+        scan : str, optional
+            Scan to read (default: "0")
+        step : str, optional
+            Step to read, defaults to the first step if not specified.
+
+        Returns
+        -------
+        NDArray
+            Data for the given channel, scan, and step.
+
+        Raises
+        ------
+        ValueError
+            If the specified channel, scan, or step is not found in the file.
+
+        """
         if step is None:
             step = self.steps[0]
 
         with h5py.File(self.path, "r") as h5f:
             return self._read_dset(h5f, channel, scan, step)
 
-    def read_steps(self, scan: str = "0"):
+    def read_steps(self, scan: str = "0") -> Iterator[tuple[str, callable]]:
+        """Iterator over steps for the given scan.
+
+        Keeps the hdf5 file open while iterating over the steps to avoid
+        the overhead of opening and closing the file for each step.
+
+        Parameters
+        ----------
+        scan : str, optional
+            Scan over which to iterate
+
+        Yields
+        ------
+        step : str
+            Step name (e.g. "0.0")
+        reader : callable
+            Function that takes a channel name and reads and returns
+            the data for the given channel.
+
+        """
         with h5py.File(self.path, "r") as h5f:
             for step in self.steps:
                 reader = partial(self._read_dset, h5f, Placeholder, scan, step)
@@ -220,6 +344,59 @@ class MetroRun:
 
 @dataclass(frozen=True)
 class MetroEvents(MetroRun):
+    """Load metro data from an hdf5 file created by sort_events.
+
+    The hdf5 file should have the following structure:
+    - scan_1
+        - step_1
+            - E (dataset)
+            - EE (dataset)
+            - ...
+        - step_2
+            - E (dataset)
+            - EE (dataset)
+            - ...
+        - ...
+    - ...
+
+    Upon initialization, the file is scanned to determine the available
+    coincedence types, scans, and steps.
+    Actual data is only read and loaded into memory when requested by
+    calling `__call__` or `read_steps`.
+
+    .. warning:: The scan does not guarantee that all combinations of
+        coincidence types, scans, and steps are present in the file
+        (e.g. in case of missing data).
+
+    .. note:: glob'ing for the hdf5 file with the run number will fail
+        if more than one file with the same run number is present in
+        the directory.
+
+    Parameters
+    ----------
+    run : str | Path | tuple[str, Path] | tuple[str, str]
+        The hdf5 file containing the metro data can be specified with:
+        - a string or Path pointing directly to the hdf5 file
+        - a tuple of (num, dir) where num is the measurement number and
+          dir is the directory containing the hdf5 file. The file is
+          expected to be named {num}_*.h5.
+        - a string num interpreted as a measurement number which
+          is searched for in the current working directory.
+
+    Attributes
+    ----------
+    path : Path
+        Path to the hdf5 file containing the metro data
+    channels : frozenset[str]
+        Data channels (coincidence types) in the hdf5 file
+    scans : list[str]
+        Scans in the hdf5 file with names "0", "1", etc.
+    steps : list[str]
+        Steps within a scan with the value of the scan variable
+        as the name (typically "0.0" for single step runs)
+
+    """
+
     def _scan(self):
         channels, scans, steps = set(), [], set()
         n_steps, n_channels = 0, 0
