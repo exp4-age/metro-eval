@@ -189,11 +189,13 @@ class MetroRun:
             match = list(Path(run[1]).glob(f"{run[0]}_*.h5"))
 
             if len(match) == 0:
-                errmsg = f"Could not find measurement {self.num}"
+                errmsg = f"Could not find measurement {run[0]} in {run[1]}"
                 raise FileNotFoundError(errmsg)
 
             if len(match) > 1:
-                errmsg = f"Found multiple measurements with {self.num}"
+                errmsg = (
+                    f"Found multiple measurements with {run[0]} in {run[1]}"
+                )
                 raise FileNotFoundError(errmsg)
 
             object.__setattr__(self, "path", match[0].resolve())
@@ -248,7 +250,7 @@ class MetroRun:
                         steps.add(step_key)
 
         if n_scans == 0:
-            errmsg = f"No scans found in {self.num}"
+            errmsg = f"No scans found in {self.path}"
             raise ValueError(errmsg)
 
         scans = [str(i) for i in range(n_scans)]
@@ -259,13 +261,13 @@ class MetroRun:
         self, h5f: h5py.File, channel: str, scan: str, step: str
     ) -> NDArray:
         if channel not in h5f:
-            errmsg = f"Channel {channel} not found in {self.num}"
+            errmsg = f"Channel {channel} not found in {self.path}"
             raise ValueError(errmsg)
 
         scans = h5f[channel]
 
         if scan not in scans:
-            errmsg = f"Scan {scan} not found in {self.num}/{channel}"
+            errmsg = f"Scan {scan} not found in {self.path}/{channel}"
             raise ValueError(errmsg)
 
         steps = scans[scan]
@@ -274,13 +276,13 @@ class MetroRun:
             try:
                 idx = self.steps.index(step)
             except ValueError:
-                errmsg = f"Step {step} not found in {self.num}/{channel}"
+                errmsg = f"Step {step} not found in {self.path}/{channel}"
                 raise ValueError(errmsg) from None
 
             return steps[idx]
 
         if step not in steps:
-            errmsg = f"Step {step} not found in {self.num}/{channel}"
+            errmsg = f"Step {step} not found in {self.path}/{channel}"
             raise ValueError(errmsg)
 
         return np.array(steps[step], order="F").squeeze()
@@ -411,7 +413,7 @@ class MetroEvents(MetroRun):
                 scan = h5f[scan_key]
 
                 if isinstance(scan, h5py.Dataset):
-                    errmsg = f"Scan {scan_key} is a dataset in {self.num}"
+                    errmsg = f"Scan {scan_key} is a dataset in {self.path}"
                     raise ValueError(errmsg)
 
                 scans.append(scan_key)
@@ -442,15 +444,15 @@ class MetroEvents(MetroRun):
                         channels.add(channel_key)
 
         if len(scans) == 0:
-            errmsg = f"No scans found in {self.num}"
+            errmsg = f"No scans found in {self.path}"
             raise ValueError(errmsg)
 
         if len(steps) == 0:
-            errmsg = f"No steps found in {self.num}"
+            errmsg = f"No steps found in {self.path}"
             raise ValueError(errmsg)
 
         if len(channels) == 0:
-            errmsg = f"No channels found in {self.num}"
+            errmsg = f"No channels found in {self.path}"
             raise ValueError(errmsg)
 
         return frozenset(channels), scans, sorted(steps)
@@ -459,19 +461,19 @@ class MetroEvents(MetroRun):
         self, h5f: h5py.File, channel: str, scan: str, step: str
     ) -> NDArray:
         if scan not in h5f:
-            errmsg = f"Scan {scan} not found in {self.num}"
+            errmsg = f"Scan {scan} not found in {self.path}"
             raise ValueError(errmsg)
 
         steps = h5f[scan]
 
         if step not in steps:
-            errmsg = f"Step {step} not found in {self.num}/{scan}"
+            errmsg = f"Step {step} not found in {self.path}/{scan}"
             raise ValueError(errmsg)
 
         channels = steps[step]
 
         if channel not in channels:
-            errmsg = f"Channel {channel} not found in {self.num}"
+            errmsg = f"Channel {channel} not found in {self.path}"
             raise ValueError(errmsg)
 
         if channel == "other":
