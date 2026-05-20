@@ -26,6 +26,8 @@ else
 endif
 
 if build_extensions
+  cy = meson.get_compiler('cython')
+  cython = find_program(cy.cmd_array()[0])
   subdir('src/metro_eval/cli/sort_events')
   subdir('src/metro_eval/cli/metro2hdf')
 endif

@@ -8,7 +8,7 @@ build-backend = "mesonpy"
 
 [project]
 name = "metro-eval"
-version = "0.0.2"
+version = "0.0.2"  # keep in sync with meson.build
 authors = [
   {name = "Adrian Peter Krone", email= "adrian.krone@physik.uni-kassel.de"},
 ]
@@ -36,10 +36,10 @@ metro-eval = "metro_eval.__main__:main"
 
 [project.optional-dependencies]
 dev = [
-    "cython>=3.2.4",
-    "meson-python>=0.19.0",
-    "ninja>=1.13.0",
-    "numpy>=2.4.2",
+    "meson-python>=0.15.0",
+    "meson>=1.5.0",
+    "ninja",
+    "cython",
 ]
 docs = [
     "jupyter>=1.1.1",
