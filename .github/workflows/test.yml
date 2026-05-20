@@ -17,22 +17,16 @@ jobs:
         include:
           - os: windows-latest
             python-version: "3.14"
-            build-mode: pure-python
           - os: windows-latest
             python-version: "3.14"
-            build-mode: cythonize
           - os: ubuntu-latest
             python-version: "3.14"
-            build-mode: cythonize
           - os: ubuntu-latest
             python-version: "3.13"
-            build-mode: cythonize
           - os: ubuntu-latest
             python-version: "3.12"
-            build-mode: cythonize
           - os: ubuntu-latest
             python-version: "3.11"
-            build-mode: cythonize
       fail-fast: false
 
     steps:
@@ -42,10 +36,6 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
     - name: Install package
-      env:
-        PURE_PYTHON: ${{ matrix.build-mode == 'pure-python' && '1' || '0' }}
       run: uv pip install --system . pytest
     - name: Run tests
-      env:
-        PURE_PYTHON: ${{ matrix.build-mode == 'pure-python' && '1' || '0' }}
       run: pytest
