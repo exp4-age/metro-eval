@@ -1,7 +1,6 @@
 import time
 import glob
 from pathlib import Path
-import sys
 import numpy as np
 import h5py
 
@@ -23,49 +22,47 @@ def analyze_words_python(events, words):
             n_events += 1
             # Start of a new bunch, so analyze the previous one
 
-            # E
             if e_counter == 1 and p_counter == 0:
                 events["E"].append(cur_event_E[0])
 
-            # P
             elif e_counter == 0 and p_counter == 1:
                 events["P"].append(cur_event_P[0])
 
-            # EP
             elif e_counter == 1 and p_counter == 1:
                 events["EP"].append([cur_event_E[0], cur_event_P[0]])
 
-            # EE
             elif e_counter == 2 and p_counter == 0:
                 events["EE"].append(cur_event_E[:])
 
-            # PP
             elif e_counter == 0 and p_counter == 2:
                 events["PP"].append(cur_event_P[:])
 
-            # EEP
             elif e_counter == 2 and p_counter == 1:
                 events["EEP"].append(
                     [cur_event_E[0], cur_event_E[1], cur_event_P[0]]
                 )
 
-            # EEE
             elif e_counter == 3 and p_counter == 0:
                 events["EEE"].append(cur_event_E[:])
 
-            # EEEE
             elif e_counter == 4 and p_counter == 0:
                 events["EEEE"].append(cur_event_E[:])
 
-            elif e_counter > 0 or p_counter > 0:
-                events["other"].append(
-                    "{0}E{1}P|{2}|{3}".format(
-                        e_counter,
-                        p_counter,
-                        ",".join([str(v) for v in cur_event_E]),
-                        ",".join([str(v) for v in cur_event_P]),
+            else:
+                event_type = "".join(("E" * e_counter, "P" * p_counter))
+
+                if event_type in events:
+                    events[event_type].append(cur_event_E + cur_event_P)
+
+                elif e_counter > 0 or p_counter > 0:
+                    events["other"].append(
+                        "{0}E{1}P|{2}|{3}".format(
+                            e_counter,
+                            p_counter,
+                            ",".join([str(v) for v in cur_event_E]),
+                            ",".join([str(v) for v in cur_event_P]),
+                        )
                     )
-                )
 
             e_counter = 0
             p_counter = 0
@@ -102,7 +99,7 @@ def main(args) -> None:
 
     # Try to import the Cython version
     try:
-        from metro_eval.sort_events.sorting_tdc import analyze_words_native
+        from .sorting_tdc import analyze_words
 
     except ImportError:
         print("(using pure python implementation)")
@@ -110,7 +107,6 @@ def main(args) -> None:
 
     else:
         print("(using native implementation)")
-        analyze_words = analyze_words_native
 
     groups_dtype = np.dtype(
         [("type", "S2"), ("arg1", "i1"), ("arg2", "i1"), ("arg3", "<i4")]
@@ -204,6 +200,10 @@ def main(args) -> None:
                         "EEP": [],
                     }
 
+                    for event_type in args.other:
+                        events[event_type] = []
+                        bufs[event_type] = []
+
                     word_start = 0
                     n_events = 0
 
@@ -273,7 +273,7 @@ def main(args) -> None:
 def parser(subparsers):
     parser = subparsers.add_parser(
         "sort_events",
-        description="Creates a hdf5 file containing sorted TDC events",
+        description="Creates an hdf5 file containing sorted TDC events",
     )
 
     parser.add_argument(
@@ -327,6 +327,15 @@ def parser(subparsers):
         default="EP",
         choices=["EP", "EI"],
         help="type of recorded particles, either EP or EI",
+    )
+
+    parser.add_argument(
+        "--other",
+        nargs="+",
+        type=str,
+        metavar="particles",
+        default=[],
+        help="additionally process the specified coincedence categories",
     )
 
     parser.set_defaults(func=main)
