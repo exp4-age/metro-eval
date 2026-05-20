@@ -14,3 +14,7 @@ Installation
 Install with ::
 
     pip install git+https://github.com/exp4-age/metro-eval@main
+
+The cython extension modules can be explicitly disabled ::
+
+    pip install git+https://github.com/exp4-age/metro-eval@main --config-settings=setup-args=-Dcythonize=disabled

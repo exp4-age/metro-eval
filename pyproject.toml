@@ -8,7 +8,7 @@ build-backend = "mesonpy"
 
 [project]
 name = "metro-eval"
-version = "0.1.0"
+version = "0.0.2"
 authors = [
   {name = "Adrian Peter Krone", email= "adrian.krone@physik.uni-kassel.de"},
 ]
