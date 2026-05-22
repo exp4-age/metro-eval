@@ -24,3 +24,10 @@ For editable installs, the optional dependencies [dev] need to be
 installed and build isolation needs to be disabled ::
 
     pip install -e .[dev] --no-build-isolation
+
+When installing with uv, the `--no-build-isolation` flag can be added
+to the pyproject.toml for persistency ::
+
+    [tool.uv]
+    no-build-isolation-package = ["metro-eval"]
+

@@ -8,6 +8,6 @@ py.extension_module(
   'sorting_tdc',
   'sorting_tdc.pyx',
   subdir: 'metro_eval/cli/sort_events',
-  include_directories: include_directories(numpy_inc),
+  c_args: ['-I' + numpy_inc],
   install: true,
 )
