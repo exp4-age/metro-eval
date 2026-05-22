@@ -1,10 +1,14 @@
 [build-system]
-requires = ["setuptools", "numpy", "cython"]
-build-backend = "setuptools.build_meta"
+requires = [
+    "meson-python>=0.15.0",
+    "numpy",
+    "cython",
+]
+build-backend = "mesonpy"
 
 [project]
 name = "metro-eval"
-dynamic = ["version"]
+version = "0.0.2"  # keep in sync with meson.build
 authors = [
   {name = "Adrian Peter Krone", email= "adrian.krone@physik.uni-kassel.de"},
 ]
@@ -32,7 +36,10 @@ metro-eval = "metro_eval.__main__:main"
 
 [project.optional-dependencies]
 dev = [
-    "ruff>=0.11.11",
+    "meson-python>=0.15.0",
+    "meson>=1.5.0",
+    "ninja",
+    "cython",
 ]
 docs = [
     "jupyter>=1.1.1",
@@ -52,12 +59,6 @@ test = [
 
 [project.urls]
 GitHub = "https://github.com/exp4-age/metro-eval"
-
-[tool.setuptools.dynamic]
-version = {attr = "metro_eval.__version__"}
-
-[tool.setuptools.packages.find]
-where = ["src"]
 
 [tool.ruff]
 line-length = 79

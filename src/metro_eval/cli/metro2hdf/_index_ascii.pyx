@@ -1,15 +1,20 @@
-def index_ascii(file_path: str) -> dict:
-    scans: dict = {}
-    result: dict = {"attrs": {}}
-    line: str
-    line_number: int = 0
-    marker: str
-    marker_split: list[str]
-    scan_idx: str = "0"
-    step_idx: str = "0"
-    step_val: str = "0"
-    attr_name: str
-    attr_val: str
+cimport cython
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def index_ascii(str file_path):
+    cdef dict scans = {}
+    cdef dict result = {"attrs": {}}
+    cdef str line
+    cdef int line_number = 0
+    cdef str marker
+    cdef list marker_split
+    cdef str scan_idx = "0"
+    cdef str step_idx = "0"
+    cdef str step_val = "0"
+    cdef str attr_name
+    cdef str attr_val
 
     with open(file_path, "r", encoding="utf-8") as f:
         for line in f:

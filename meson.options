@@ -1,0 +1,6 @@
+option(
+  'cythonize',
+  type: 'feature',
+  value: 'enabled',
+  description: 'Build optional Cython extension modules'
+)
