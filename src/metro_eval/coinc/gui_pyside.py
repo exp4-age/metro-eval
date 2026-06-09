@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 import numpy as np
 
 from metro_eval.coinc.file_handler import get_keys, read_coinc
+from metro_eval.coinc.plot_functions import plot_1D
 
 
 class FilterRow(QWidget):
@@ -105,6 +106,7 @@ class MainWindow(QMainWindow):
         self.dataset_combo = QComboBox()
 
         self.load_btn = QPushButton("Load data")
+        self.load_btn.clicked.connect(self.load_data)
 
         data_layout.addWidget(self.file_label, 2)
         data_layout.addWidget(self.browse_btn)
@@ -288,13 +290,26 @@ class MainWindow(QMainWindow):
         plot1d_layout.addWidget(QLabel("range:"), 0, 1)
         plot1d_layout.addWidget(QLabel("bins:"), 0, 3)
 
-        plot1d_layout.addWidget(QComboBox(), 1, 0)
-        plot1d_layout.addWidget(QLineEdit(), 1, 1)
-        plot1d_layout.addWidget(QLineEdit(), 1, 2)
-        plot1d_layout.addWidget(QLineEdit(), 1, 3)
+        self.plot1d_column_combo = QComboBox()
+        self.plot1d_column_combo.setCurrentIndex(0)
+        plot1d_layout.addWidget(self.plot1d_column_combo, 1, 0)
+        self.plot1d_lineedits = {}
+        self.plot1d_lineedits['range_lo'] = QLineEdit()
+        self.plot1d_lineedits['range_lo'].setPlaceholderText("0")
+        plot1d_layout.addWidget(self.plot1d_lineedits['range_lo'], 1, 1)
+        self.plot1d_lineedits['range_hi'] = QLineEdit()
+        self.plot1d_lineedits['range_hi'].setPlaceholderText("400")
+        plot1d_layout.addWidget(self.plot1d_lineedits['range_hi'], 1, 2)
+        self.plot1d_lineedits['bins'] = QLineEdit()
+        self.plot1d_lineedits['bins'].setPlaceholderText("200")
+        plot1d_layout.addWidget(self.plot1d_lineedits['bins'], 1, 3)
+
 
         plot1d_layout.addWidget(QPushButton("Advanced settings"), 2, 0, 1, 2)
-        plot1d_layout.addWidget(QPushButton("Plot"), 2, 2, 1, 2)
+        
+        self.plot_1d_btn = QPushButton("Plot")
+        self.plot_1d_btn.clicked.connect(self.plot_1d)
+        plot1d_layout.addWidget(self.plot_1d_btn, 2, 2, 1, 2)
 
         plot1d_group.setLayout(plot1d_layout)
 
@@ -372,7 +387,7 @@ class MainWindow(QMainWindow):
         
         '''
         arrays = []
-        key = self.dataset_combo.Text()
+        key = self.dataset_combo.currentText()
         
         for path in self.file_path:
             arr = read_coinc(path, key)
@@ -382,6 +397,9 @@ class MainWindow(QMainWindow):
         self.data_current = self.data_raw
         self.data_postproc = self.data_raw
         self.data_calibrated = self.data_raw
+
+        self.on_array_change()
+        
         '''
         label_old = self.file_label.text()
         if "Loaded" in self.file_label.text():
@@ -392,6 +410,7 @@ class MainWindow(QMainWindow):
             label = f"Loaded {key} data from {label_old}"
         self.file_label.setText(label)
         '''
+        print(f"Loaded data with shape {self.data_raw.shape} from files: {self.file_path}")
 
         # self.update_plot_columns()
     
@@ -409,10 +428,105 @@ class MainWindow(QMainWindow):
         row.setParent(None)
         row.deleteLater()
 
+    def plot_1d(self):
+        '''
+        In construction from gui.py
+
+        Take the information from self.plot_settings_1d and plot a 1D histogram
+        using plot_functions.plot_1D
+
+        '''
+        print("Plotting 1D spectrum with settings:")
+        plot_settings_1D = {}
+    
+        for key, widget in self.plot1d_lineedits.items():
+            value = widget.text()
+            plot_settings_1D[key] = value
+        
+        try:
+            plot_settings_1D['bins'] = int(plot_settings_1D['bins'])
+
+        except ValueError:
+            print("Invalid input for bins, using default value of 100")
+            plot_settings_1D['bins'] = 100
+        try:
+            plot_settings_1D['range_lo'] = float(plot_settings_1D['range_lo'])
+        except ValueError:
+            print("Invalid input for range_lo, using default value of 0")
+            plot_settings_1D['range_lo'] = 0
+        try:
+            plot_settings_1D['range_hi'] = float(plot_settings_1D['range_hi'])
+        except ValueError:
+            print("Invalid input for range_hi, using default value of 200")
+            plot_settings_1D['range_hi'] = 200
+        try:
+            plot_settings_1D['column'] = int(self.plot1d_column_combo.currentText())
+        except ValueError:
+            print("Invalid input for column, using default value of 1")
+            plot_settings_1D['column'] = 1
+
+        if self.data_current is None:
+            print("No data loaded, cannot plot")
+            return
+    
+        column = plot_settings_1D['column']
+        bins = plot_settings_1D['bins']
+        range_lo = plot_settings_1D['range_lo'] 
+        range_hi = plot_settings_1D['range_hi']
+
+        #TODO
+        ## Here, we need to add the extraction for the other values in the
+        ## self.plot_settings_1d dictionary, which can be added in the 
+        ## advanced options later
+        
+        hist_kwargs={}
+        plot_kwargs={}
+        
+        plot_1D(self.data_current, column, range=(range_lo, range_hi), 
+                bins=bins,
+                hist_kwargs=hist_kwargs,
+                plot_kwargs=plot_kwargs)
+        
     
     # ======================================
     # HELPER FUNCTIONS
     # ======================================
+
+    def on_array_change(self):
+        '''
+        This function should be called whenever self.data_current is updated, to
+        update the status labels, the plot column dropdowns, ...
+
+        '''
+        # Update status labels
+        if self.data_current is None:
+            return
+        
+        if self.data_current is self.data_raw:
+            post_status = "No postprocessing"
+            calib_status = "Not calibrated"
+        else:
+            post_status = "Postprocessed"
+            if self.data_current is self.data_calibrated:
+                calib_status = "Calibrated"
+            else:
+                calib_status = "Not calibrated"
+        
+        self.plot1d_column_combo.clear()
+        if self.data_current is not None:
+            num_columns = self.data_current.shape[1]
+            column_names = [f"{i+1}" for i in range(num_columns)]
+            self.plot1d_column_combo.addItems(column_names)
+            self.plot1d_column_combo.setCurrentIndex(0)
+        
+        '''
+        #TODO
+        Work in progress: we need to add the update for the status labels here, but we first need to 
+        decide how to store the information about the current state of the data (raw, postprocessed, calibrated, ...) 
+        in a way that is easy to check in this function and in the other functions that need to know about it 
+        (e.g. the plot functions, which might want to change their behavior based on the state of the data)
+        '''
+
 
     def load_keys_from_file(self):
 
