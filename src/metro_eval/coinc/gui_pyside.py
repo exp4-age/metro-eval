@@ -24,8 +24,8 @@ from PySide6.QtWidgets import (
 import numpy as np
 
 from metro_eval.coinc.file_handler import get_keys, read_coinc
-from metro_eval.coinc.plot_functions import plot_1D
-
+from metro_eval.coinc.plot_functions import plot_1D, hist_1D
+from metro_eval.coinc.analysis_pages import SignalPage, HistogramPage
 
 class FilterRow(QWidget):
     """
@@ -63,7 +63,7 @@ class MainWindow(QMainWindow):
         super().__init__()
 
         self.setWindowTitle("Analysis GUI")
-        self.resize(1000, 850)
+        self.resize(1400, 750)
 
 
         # =========================
@@ -120,32 +120,32 @@ class MainWindow(QMainWindow):
         # -------------------------
 
         post_group = QGroupBox("Postprocessing")
-        post_layout = QHBoxLayout()
+        post_layout = QVBoxLayout()
 
         # CALIBRATION BOX
 
         calibration_box = QGroupBox("Calibration")
-        calibration_layout = QVBoxLayout()
-
-        calibration_layout.addWidget(QLabel("Select calibration"))
+        calibration_layout = QGridLayout()
 
         self.calibration_combo = QComboBox()
+        self.calibration_combo.addItems(["Select calibration"])
+        self.calibration_combo.setCurrentIndex(0)
 
-        calibration_layout.addWidget(self.calibration_combo)
+        calibration_layout.addWidget(self.calibration_combo,0,0)
 
-        calib_buttons = QHBoxLayout()
+        calib_buttons = QGridLayout()
 
         self.apply_calib_btn = QPushButton("Apply")
         self.open_calib_btn = QPushButton("Open")
         self.new_calib_btn = QPushButton("New")
         self.remove_calib_btn = QPushButton("Remove")
 
-        calib_buttons.addWidget(self.apply_calib_btn)
-        calib_buttons.addWidget(self.open_calib_btn)
-        calib_buttons.addWidget(self.new_calib_btn)
-        calib_buttons.addWidget(self.remove_calib_btn)
+        calib_buttons.addWidget(self.apply_calib_btn, 0, 0)
+        calib_buttons.addWidget(self.open_calib_btn, 0, 1)
+        calib_buttons.addWidget(self.new_calib_btn, 1, 0)
+        calib_buttons.addWidget(self.remove_calib_btn, 1, 1)
 
-        calibration_layout.addLayout(calib_buttons)
+        calibration_layout.addLayout(calib_buttons, 1,0)
 
         calibration_box.setLayout(calibration_layout)
 
@@ -169,9 +169,9 @@ class MainWindow(QMainWindow):
         overlap_layout.addWidget(QPushButton("Reset overlap"), 3, 1)
 
         overlap_box.setLayout(overlap_layout)
-
-        post_layout.addWidget(calibration_box, 2)
+        
         post_layout.addWidget(overlap_box, 1)
+        post_layout.addWidget(calibration_box, 1)
 
         post_group.setLayout(post_layout)
 
@@ -180,11 +180,11 @@ class MainWindow(QMainWindow):
         # -------------------------
 
         masking_group = QGroupBox("Masking")
-        masking_layout = QHBoxLayout()
+        masking_layout = QVBoxLayout()
 
         # LEFT SIDE
 
-        left_masking = QVBoxLayout()
+        masking_normal = QVBoxLayout()
 
         masking_by_column = QGroupBox("Masking by column")
         masking_by_column_layout = QVBoxLayout()
@@ -209,22 +209,12 @@ class MainWindow(QMainWindow):
         filter_buttons.addWidget(self.apply_filters_btn)
         filter_buttons.addWidget(self.remove_filters_btn)
 
-        left_masking.addWidget(masking_by_column)
-        left_masking.addLayout(filter_buttons)
+        masking_normal.addWidget(masking_by_column)
+        masking_normal.addLayout(filter_buttons)
 
-        # RIGHT SIDE
+        
 
-        advanced_masking = QGroupBox("Advanced masking")
-        advanced_layout = QVBoxLayout()
-
-        advanced_layout.addStretch()
-        advanced_layout.addWidget(QPushButton("Advanced options"))
-        advanced_layout.addStretch()
-
-        advanced_masking.setLayout(advanced_layout)
-
-        masking_layout.addLayout(left_masking, 2)
-        masking_layout.addWidget(advanced_masking, 1)
+        masking_layout.addLayout(masking_normal, 2)
 
         masking_group.setLayout(masking_layout)
 
@@ -252,10 +242,10 @@ class MainWindow(QMainWindow):
         left_panel.addLayout(bottom_layout)
 
         # =========================
-        # RIGHT PANEL
+        # CENTER PANEL
         # =========================
 
-        right_panel = QVBoxLayout()
+        center_panel = QVBoxLayout()
 
         # STATUS
 
@@ -342,16 +332,34 @@ class MainWindow(QMainWindow):
 
         plot_group.setLayout(plot_layout)
 
-        right_panel.addWidget(status_group)
-        right_panel.addWidget(plot_group)
-        right_panel.addStretch()
+        center_panel.addWidget(status_group)
+        center_panel.addWidget(plot_group)
+        center_panel.addStretch()
+
+        # =========================
+        # RIGHT PANEL       
+        # =========================
+
+        right_panel = QVBoxLayout()
+
+        self.plot_workspace = PlotWorkspace()
+
+        button = QPushButton("Create Plot")
+        button.clicked.connect(
+            self.plot_workspace.create_random_signal
+        )
+
+        right_panel.addWidget(button)
+        right_panel.addWidget(self.plot_workspace)
+
 
         # =========================
         # MAIN LAYOUT
         # =========================
 
-        main_layout.addLayout(left_panel, 2)
-        main_layout.addLayout(right_panel, 1)
+        main_layout.addLayout(left_panel, 1)
+        main_layout.addLayout(center_panel, 1)
+        main_layout.addLayout(right_panel, 2)
 
     # ======================================
     # BUTTON FUNCTIONS
@@ -399,7 +407,7 @@ class MainWindow(QMainWindow):
         self.data_calibrated = self.data_raw
 
         self.on_array_change()
-        
+
         '''
         label_old = self.file_label.text()
         if "Loaded" in self.file_label.text():
@@ -460,7 +468,7 @@ class MainWindow(QMainWindow):
             print("Invalid input for range_hi, using default value of 200")
             plot_settings_1D['range_hi'] = 200
         try:
-            plot_settings_1D['column'] = int(self.plot1d_column_combo.currentText())
+            plot_settings_1D['column'] = int(self.plot1d_column_combo.currentText())-1
         except ValueError:
             print("Invalid input for column, using default value of 1")
             plot_settings_1D['column'] = 1
@@ -480,12 +488,13 @@ class MainWindow(QMainWindow):
         ## advanced options later
         
         hist_kwargs={}
-        plot_kwargs={}
-        
-        plot_1D(self.data_current, column, range=(range_lo, range_hi), 
-                bins=bins,
-                hist_kwargs=hist_kwargs,
-                plot_kwargs=plot_kwargs)
+        plot_kwargs={"drawstyle": 'steps-mid'}
+
+        if True:
+            xlabel = f"Particle {column+1} TOF (ns)"
+            ylabel = "Intensity (arb. units)"
+        values, edges = hist_1D(self.data_current, column, range=(range_lo, range_hi), bins=bins, **hist_kwargs)
+        self.plot_workspace.add_histogram_plot(values, edges[:-1], xlabel=xlabel, ylabel=ylabel, plot_kwargs=plot_kwargs)
         
     
     # ======================================
@@ -541,6 +550,67 @@ class MainWindow(QMainWindow):
         key_set = list(dict.fromkeys(key_list))
         
         return key_set
+
+
+import numpy as np
+
+from PySide6.QtWidgets import (
+    QWidget,
+    QVBoxLayout,
+    QTabWidget,
+)
+
+
+
+class PlotWorkspace(QWidget):
+    """
+    Reusable plotting workspace.
+
+    Can be embedded into any MainWindow.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        self.counter = 1
+
+        layout = QVBoxLayout(self)
+
+        self.tabs = QTabWidget()
+
+        self.tabs.setTabsClosable(True)
+        self.tabs.tabCloseRequested.connect(
+            self.tabs.removeTab
+        )
+
+        layout.addWidget(self.tabs)
+
+    def add_page(self, page: QWidget, title: str = None):
+        
+        if title is None:
+            title = f"Plot {self.counter}"
+        index = self.tabs.addTab(
+            page,
+            title
+        )
+        self.tabs.setCurrentIndex(index)
+        self.counter += 1
+
+    def add_signal_plot(self, x, y):
+
+        page = SignalPage(x, y)
+        self.add_page(page)
+
+    def add_histogram_plot(self, values, edges, xlabel="", ylabel="", plot_kwargs=None):
+        page = HistogramPage(values, edges, xlabel=xlabel, ylabel=ylabel, plot_kwargs=plot_kwargs)
+        self.add_page(page)
+
+    def create_random_signal(self):
+
+        x = np.arange(1000)
+        y = np.random.randn(1000).cumsum()
+
+        self.add_signal_plot(x, y)
 
 
 # ==========================================

@@ -2,8 +2,6 @@
 Handle files
 '''
 
-import os 
-import h5py
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
@@ -30,6 +28,10 @@ def plot_E1(array, hist_kwargs=None, plot_kwargs=None):
     plt.plot(edges[:-1], values)
     plt.xlabel("Electron time of flight")
     
+def hist_1D(array, column, bins=None, range=None, density=False):
+    hist_kwargs = dict(bins=bins, range=range, density=density)
+    values, edges = np.histogram(array[:,column], **hist_kwargs)
+    return values, edges
 
 def plot_1D(array, column, bins=None, range=None, color = 'blue', density=False,
             xlabel = "Electron TOF (ns)",
@@ -177,4 +179,4 @@ if __name__ == "__main__":
     plot_1D(array, 1, density=True, bins=100)
     coincmap, xedges, yedges = bin_2D(array, (0,1), bins=(100,100), range=((0,3000), (0,3000)))
     plot_2D(coincmap, xedges, yedges, xlabel="E1 kinetic energy")
-    
+    plt.show()
