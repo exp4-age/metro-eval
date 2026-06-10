@@ -1,10 +1,11 @@
 import os
 import sys
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QLayout,
     QMainWindow,
+    QSizePolicy,
     QWidget,
     QFileDialog,
     QGroupBox,
@@ -19,8 +20,14 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
     QGridLayout,
-    QSizePolicy,
-    QFrame,
+    QButtonGroup,
+    QTabWidget,
+    QTableWidget,
+    QHeaderView,
+    QMessageBox,
+    QRadioButton,
+    QDoubleSpinBox,
+    QSpinBox,
 )
 import numpy as np
 
@@ -111,11 +118,12 @@ class MainWindow(QMainWindow):
 
         center_panel = QVBoxLayout()
 
-        center_panel_width = 300
+        center_panel_width = 450
         status_group = self._add_status_group()
         status_group.setFixedWidth(center_panel_width)
         plot_group = self._add_plot_settings_group()
         plot_group.setFixedWidth(center_panel_width)
+
 
         center_panel.addWidget(status_group)
         center_panel.addWidget(plot_group)
@@ -295,7 +303,6 @@ class MainWindow(QMainWindow):
 
         masking_group.setLayout(masking_layout)
         return masking_group
-    
 
     def _add_status_group(self):
         '''
@@ -354,7 +361,6 @@ class MainWindow(QMainWindow):
 
         return plot1d_group
     
-
     def _add_plot2d_group(self):
 
         plot2d_group = QGroupBox("2D coincidence map")
@@ -401,7 +407,6 @@ class MainWindow(QMainWindow):
         plot2d_group.setLayout(plot2d_layout)
         return plot2d_group
     
-        
     def _add_plot_settings_group(self):
 
         plot_group = QGroupBox("Plot settings")
@@ -411,8 +416,14 @@ class MainWindow(QMainWindow):
         plot2d_group = self._add_plot2d_group()
 
 
+        self.plot_widget = PlotDefinitionWidget()
+        self.plot_widget.histogram_requested.connect(self.handle_histogram_request)
+        self.plot_widget.xy_requested.connect(self.handle_xy_request)
+
+
         plot_layout.addWidget(plot1d_group)
         plot_layout.addWidget(plot2d_group)
+        plot_layout.addWidget(self.plot_widget)
 
         plot_group.setLayout(plot_layout)
 
@@ -545,7 +556,7 @@ class MainWindow(QMainWindow):
         ## advanced options later
         
         hist_kwargs={}
-        plot_kwargs={"drawstyle": 'steps-mid'}
+        plot_kwargs={}
 
         if True:
             xlabel = f"Particle {column+1} TOF (ns)"
@@ -608,6 +619,37 @@ class MainWindow(QMainWindow):
     # HELPER FUNCTIONS
     # ======================================
 
+    def handle_histogram_request(self, request):
+        print("Received histogram request:", request)
+        col_idx = request['column']-1
+        bins = request['bins']
+        range_lo = request['min']
+        range_hi = request['max']
+
+        if self.data_current is None:
+            print("No data loaded, cannot plot")
+            return
+
+        x, y = hist_1D(self.data_current, col_idx, range=(range_lo, range_hi), bins=bins)
+        self.plot_workspace.add_histogram_plot(x, y[:-1], xlabel=f"Particle {col_idx+1}", ylabel="Intensity")
+
+    def handle_xy_request(self, request):
+
+        if self.data_current is None:
+            print("No data loaded, cannot plot")
+            return
+
+        col_idx = (request['x']['column']-1, request['y']['column']-1)
+        bins = (request['x']['bins'], request['y']['bins'])
+        range_1 = (request['x']['min'], request['x']['max'])   
+        range_2 = (request['y']['min'], request['y']['max'])
+        units = "ns"  #TODO change the units for the case of calibrated data
+        
+        
+        self.plot_workspace.add_coincidence_map(self.data_current[:, [col_idx[0], col_idx[1]]],
+                                                bins=bins, range=(range_1, range_2), 
+                                                units=units)
+
     def on_array_change(self):
         '''
         This function should be called whenever self.data_current is updated, to
@@ -666,16 +708,283 @@ class MainWindow(QMainWindow):
         key_set = list(dict.fromkeys(key_list))
         
         return key_set
+    
+
+class PlotDefinitionWidget(QWidget):
+
+    histogram_requested = Signal(dict)
+    xy_requested = Signal(dict)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        self.table = QTableWidget(0, 7)
+
+        self.table.setHorizontalHeaderLabels(
+            [
+                "X",
+                "Y",
+                "Column",
+                "Min",
+                "Max",
+                "Bins",
+                "Plot",
+            ]
+        )
+        
+        self.table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch
+        )
+
+        header = self.table.horizontalHeader()
+
+        header.setSectionResizeMode(0, QHeaderView.Fixed)        # X radio
+        header.setSectionResizeMode(1, QHeaderView.Fixed)        # Y radio
+        header.setSectionResizeMode(2, QHeaderView.Stretch)                 # Column
+        header.setSectionResizeMode(3, QHeaderView.Fixed)        # Min
+        header.setSectionResizeMode(4, QHeaderView.Fixed)        # Max
+        header.setSectionResizeMode(5, QHeaderView.Fixed)        # Bins
+        header.setSectionResizeMode(6, QHeaderView.Fixed)        # Button
+
+        self.table.setColumnWidth(0, 25)   # X
+        self.table.setColumnWidth(1, 25)   # Y
+        self.table.setColumnWidth(2, 120)  # Column (will still stretch visually)
+        self.table.setColumnWidth(3, 70)   # Min
+        self.table.setColumnWidth(4, 70)   # Max
+        self.table.setColumnWidth(5, 60)   # Bins
+        self.table.setColumnWidth(6, 60)   # Plot
+
+        # Create button groups for X and Y radio buttons
+        self.x_group = QButtonGroup(self)
+        self.y_group = QButtonGroup(self)
+        self.x_group.setExclusive(True)
+        self.y_group.setExclusive(True)
 
 
-import numpy as np
+        self.add_button = QPushButton("Add Row")
+        self.remove_button = QPushButton("Remove Selected Rows")
+        self.plot_xy_button = QPushButton("Plot XY")
 
-from PySide6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QTabWidget,
-)
+        button_layout = QHBoxLayout()
+        button_layout.addWidget(self.add_button)
+        button_layout.addWidget(self.remove_button)
+        button_layout.addStretch()
+        button_layout.addWidget(self.plot_xy_button)
 
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.table)
+        layout.addLayout(button_layout)
+
+        self.add_button.clicked.connect(self.add_row)
+        self.remove_button.clicked.connect(
+            self.remove_selected_rows
+        )
+        self.plot_xy_button.clicked.connect(
+            self.request_xy_plot
+        )
+
+        self.add_row()
+
+    # --------------------------------------------------
+    # Row management
+    # --------------------------------------------------
+
+    def add_row(self):
+
+        row = self.table.rowCount()
+        self.table.insertRow(row)
+
+        x_radio = QRadioButton()
+        x_radio.setText("")
+        x_radio.setFixedSize(20,20)
+
+        y_radio = QRadioButton()
+        y_radio.setText("")
+        y_radio.setFixedSize(20,20)
+
+        self.x_group.addButton(x_radio)
+        self.y_group.addButton(y_radio)
+        
+        
+        col_combo = QComboBox()
+        col_combo.addItems([f"{i+1}" for i in range(10)])
+
+
+
+        min_dsb = QDoubleSpinBox()
+        min_dsb.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+        min_dsb.setRange(-1e10, 1e10)
+        min_dsb.setDecimals(1)
+        min_dsb.setValue(0)
+        min_dsb.setButtonSymbols(QDoubleSpinBox.NoButtons)
+
+        max_dsb = QDoubleSpinBox()
+        max_dsb.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+        max_dsb.setRange(-1e10, 1e10)
+        max_dsb.setDecimals(1)
+        max_dsb.setValue(400)
+        max_dsb.setButtonSymbols(QDoubleSpinBox.NoButtons)
+
+        bins_sb = QSpinBox()
+        bins_sb.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+        bins_sb.setRange(1, 10000)
+        bins_sb.setValue(100)
+        bins_sb.setButtonSymbols(QSpinBox.NoButtons)
+
+        plot_button = QPushButton("Plot")
+
+        plot_button.clicked.connect(
+            self.histogram_button_clicked
+        )
+
+        self.table.setCellWidget(row, 0, x_radio)
+        self.table.setCellWidget(row, 1, y_radio)
+        self.table.setCellWidget(row, 2, col_combo)
+        self.table.setCellWidget(row, 3, min_dsb)
+        self.table.setCellWidget(row, 4, max_dsb)
+        self.table.setCellWidget(row, 5, bins_sb)
+        self.table.setCellWidget(row, 6, plot_button)
+
+    def remove_selected_rows(self):
+
+        rows = sorted(
+            {idx.row() for idx in self.table.selectedIndexes()},
+            reverse=True,
+        )
+
+        for row in rows:
+            self.table.removeRow(row)
+
+    # --------------------------------------------------
+    # Radio button handling
+    # --------------------------------------------------
+
+
+    def get_selected_x_row(self):
+
+        for row in range(self.table.rowCount()):
+
+            if self.table.cellWidget(row, 0).isChecked():
+                return row
+
+        return None
+
+    def get_selected_y_row(self):
+
+        for row in range(self.table.rowCount()):
+
+            if self.table.cellWidget(row, 1).isChecked():
+                return row
+
+        return None
+
+    # --------------------------------------------------
+    # Helpers
+    # --------------------------------------------------
+
+    def get_row_definition(self, row):
+
+        column = (
+            self.table.cellWidget(row, 2)
+            .currentText()
+            .strip()
+        )
+
+        min_text = (
+            self.table.cellWidget(row, 3)
+            .text()
+            .strip()
+        )
+
+        max_text = (
+            self.table.cellWidget(row, 4)
+            .text()
+            .strip()
+        )
+
+        bins_text = (
+            self.table.cellWidget(row, 5)
+            .text()
+            .strip()
+        )
+
+        try:
+            bins = int(bins_text)
+        except ValueError:
+            bins = 100
+
+        return {
+            "column": int(column),
+            "min": float(min_text)
+            if min_text
+            else None,
+            "max": float(max_text)
+            if max_text
+            else None,
+            "bins": bins
+        }
+
+    # --------------------------------------------------
+    # Histogram requests
+    # --------------------------------------------------
+
+    def histogram_button_clicked(self):
+
+        button = self.sender()
+
+        for row in range(self.table.rowCount()):
+
+            if self.table.cellWidget(row, 6) is button:
+
+                request = self.get_row_definition(
+                    row
+                )
+                request['type'] = 'histogram'
+
+                self.histogram_requested.emit(
+                    request
+                )
+
+                return
+
+    # --------------------------------------------------
+    # XY requests
+    # --------------------------------------------------
+
+    def request_xy_plot(self):
+
+        x_row = self.get_selected_x_row()
+        y_row = self.get_selected_y_row()
+
+        if x_row is None:
+
+            QMessageBox.warning(
+                self,
+                "Selection Error",
+                "Select an X row."
+            )
+            return
+
+        if y_row is None:
+
+            QMessageBox.warning(
+                self,
+                "Selection Error",
+                "Select a Y row."
+            )
+            return
+
+        request = {
+            "x": self.get_row_definition(
+                x_row
+            ),
+            "y": self.get_row_definition(
+                y_row
+            ),
+        }
+        request['type'] = 'xy'
+
+        self.xy_requested.emit(request)
 
 
 class PlotWorkspace(QWidget):
@@ -717,8 +1026,8 @@ class PlotWorkspace(QWidget):
         page = SignalPage(x, y)
         self.add_page(page)
 
-    def add_histogram_plot(self, values, edges, xlabel="", ylabel="", plot_kwargs=None):
-        page = HistogramPage(values, edges, xlabel=xlabel, ylabel=ylabel, plot_kwargs=plot_kwargs)
+    def add_histogram_plot(self, values, edges, xlabel="", ylabel=""):
+        page = HistogramPage(values, edges, xlabel=xlabel, ylabel=ylabel)
         self.add_page(page)
 
     def add_coincidence_map(self, data, bins=50, range=None, xlabel="first electron", ylabel="second electron", units=None):
