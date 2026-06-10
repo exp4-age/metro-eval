@@ -1,8 +1,9 @@
 import os
 import sys
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QLocale
 from PySide6.QtWidgets import (
     QApplication,
+    QFormLayout,
     QLayout,
     QMainWindow,
     QSizePolicy,
@@ -29,6 +30,9 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QSpinBox,
 )
+
+QLocale.setDefault(QLocale(QLocale.C))  # "C" locale = dot decimal
+
 import numpy as np
 
 from metro_eval.coinc.file_handler import get_keys, read_coinc
@@ -83,6 +87,21 @@ class MainWindow(QMainWindow):
         self.data_raw = None
         self.data_calibrated = None
         self.data_current = None
+
+        self.status = {
+            "File(s)": "N/A",
+            "Coincidence": "N/A",
+            "Postprocessing": "N/A",
+            "Bunch overlap": "N/A",
+            "Calibrated": "N/A",
+            "Masks applied": "N/A",
+            "Data shape (raw)": "N/A",
+            "Data shape (current)": "N/A",
+        }
+        self.pinned_keys = [
+            "E", "EE", "EEE", "EEEE",
+            "EP", "EEP", "P", "PP"
+        ]
 
         # =========================
         # CENTRAL WIDGET
@@ -309,103 +328,22 @@ class MainWindow(QMainWindow):
         #TODO
         Display the status of the data. Implementation necessary.
         '''
-        status_group = QGroupBox("Data status")
-        status_layout = QGridLayout()
+        self.status_group = QGroupBox("Data status")
+        self.status_widget = QWidget()
+        self.status_layout = QFormLayout(self.status_widget)
 
-        labels = [
-            "File:",
-            "Coincidence:",
-            "Postprocessing:",
-            "bunch overlap:",
-            "Calibrated:",
-        ]
+        self.status_labels = {}
 
-        for i, text in enumerate(labels):
-            status_layout.addWidget(QLabel(text), i, 0)
-            status_layout.addWidget(QLabel(""), i, 1)
+        for key in self.status.keys():
+            label = QLabel("N/A")
+            self.status_labels[key] = label
+            self.status_layout.addRow(f"{key}:", label)
 
-        status_group.setLayout(status_layout)
+        self.status_widget.setLayout(self.status_layout)
+        self.status_group.setLayout(QVBoxLayout())
+        self.status_group.layout().addWidget(self.status_widget)
 
-        return status_group
-    
-    def _add_plot1d_group(self):
-        plot1d_group = QGroupBox("1D Spectra")
-        plot1d_layout = QGridLayout()
-
-        plot1d_layout.addWidget(QLabel("Column:"), 0, 0)
-        plot1d_layout.addWidget(QLabel("range:"), 0, 1)
-        plot1d_layout.addWidget(QLabel("bins:"), 0, 3)
-
-        self.plot1d_column_combo = QComboBox()
-        self.plot1d_column_combo.setCurrentIndex(0)
-        plot1d_layout.addWidget(self.plot1d_column_combo, 1, 0)
-        self.plot1d_lineedits = {}
-        self.plot1d_lineedits['range_lo'] = QLineEdit()
-        self.plot1d_lineedits['range_lo'].setPlaceholderText("0")
-        plot1d_layout.addWidget(self.plot1d_lineedits['range_lo'], 1, 1)
-        self.plot1d_lineedits['range_hi'] = QLineEdit()
-        self.plot1d_lineedits['range_hi'].setPlaceholderText("400")
-        plot1d_layout.addWidget(self.plot1d_lineedits['range_hi'], 1, 2)
-        self.plot1d_lineedits['bins'] = QLineEdit()
-        self.plot1d_lineedits['bins'].setPlaceholderText("200")
-        plot1d_layout.addWidget(self.plot1d_lineedits['bins'], 1, 3)
-
-
-        plot1d_layout.addWidget(QPushButton("Advanced settings"), 2, 0, 1, 2)
-        
-        self.plot_1d_btn = QPushButton("Plot")
-        self.plot_1d_btn.clicked.connect(self.plot_1d)
-        plot1d_layout.addWidget(self.plot_1d_btn, 2, 2, 1, 2)
-
-        plot1d_group.setLayout(plot1d_layout)
-
-        return plot1d_group
-    
-    def _add_plot2d_group(self):
-
-        plot2d_group = QGroupBox("2D coincidence map")
-        plot2d_layout = QGridLayout()
-
-        plot2d_layout.addWidget(QLabel("Columns:"), 0, 0)
-        plot2d_layout.addWidget(QLabel("ranges:"), 0, 1)
-        plot2d_layout.addWidget(QLabel("bins:"), 0, 3)
-
-        self.plot2d_column_combos = {}
-        self.plot2d_column_combos['col_1'] = QComboBox()
-        self.plot2d_column_combos['col_1'].setCurrentIndex(0)
-        plot2d_layout.addWidget(self.plot2d_column_combos['col_1'], 1, 0)
-        
-        self.plot2d_lineedits = {}
-        self.plot2d_lineedits['range_lo_1'] = QLineEdit()
-        self.plot2d_lineedits['range_lo_1'].setPlaceholderText("0")
-        plot2d_layout.addWidget(self.plot2d_lineedits['range_lo_1'], 1, 1)
-        self.plot2d_lineedits['range_hi_1'] = QLineEdit()
-        self.plot2d_lineedits['range_hi_1'].setPlaceholderText("200")
-        plot2d_layout.addWidget(self.plot2d_lineedits['range_hi_1'], 1, 2)
-        self.plot2d_lineedits['bins_1'] = QLineEdit()
-        self.plot2d_lineedits['bins_1'].setPlaceholderText("100")
-        plot2d_layout.addWidget(self.plot2d_lineedits['bins_1'], 1, 3)
-        
-        self.plot2d_column_combos['col_2'] = QComboBox()
-        self.plot2d_column_combos['col_2'].setCurrentIndex(0)
-        plot2d_layout.addWidget(self.plot2d_column_combos['col_2'], 2, 0)
-        self.plot2d_lineedits['range_lo_2'] = QLineEdit()
-        self.plot2d_lineedits['range_lo_2'].setPlaceholderText("0")
-        plot2d_layout.addWidget(self.plot2d_lineedits['range_lo_2'], 2, 1)
-        self.plot2d_lineedits['range_hi_2'] = QLineEdit()
-        self.plot2d_lineedits['range_hi_2'].setPlaceholderText("200")
-        plot2d_layout.addWidget(self.plot2d_lineedits['range_hi_2'], 2, 2)
-        self.plot2d_lineedits['bins_2'] = QLineEdit()
-        self.plot2d_lineedits['bins_2'].setPlaceholderText("100")
-        plot2d_layout.addWidget(self.plot2d_lineedits['bins_2'], 2, 3)
-
-        plot2d_layout.addWidget(QPushButton("Advanced settings"), 3, 0, 1, 2)
-        plot2d_btn = QPushButton("Plot")
-        plot2d_btn.clicked.connect(self.plot_2d)
-        plot2d_layout.addWidget(plot2d_btn, 3, 2, 1, 2)
-
-        plot2d_group.setLayout(plot2d_layout)
-        return plot2d_group
+        return self.status_group
     
     def _add_plot_settings_group(self):
 
@@ -466,7 +404,8 @@ class MainWindow(QMainWindow):
         self.data_current = self.data_raw
         self.data_postproc = self.data_raw
         self.data_calibrated = self.data_raw
-
+        self.set_status("File(s)",self.file_label.text())
+        self.set_status("Coincidence", key)
         self.on_array_change()
 
         '''
@@ -545,32 +484,8 @@ class MainWindow(QMainWindow):
         # Update status labels
         if self.data_current is None:
             return
-        
-        if self.data_current is self.data_raw:
-            post_status = "No postprocessing"
-            calib_status = "Not calibrated"
-        else:
-            post_status = "Postprocessed"
-            if self.data_current is self.data_calibrated:
-                calib_status = "Calibrated"
-            else:
-                calib_status = "Not calibrated"
-        
-        self.plot1d_column_combo.clear()
-        if self.data_current is not None:
-            num_columns = self.data_current.shape[1]
-            column_names = [f"{i+1}" for i in range(num_columns)]
-            self.plot1d_column_combo.addItems(column_names)
-            self.plot1d_column_combo.setCurrentIndex(0)
-        self.plot2d_column_combos['col_1'].clear()
-        self.plot2d_column_combos['col_2'].clear()
-        if self.data_current is not None:
-            num_columns = self.data_current.shape[1]
-            column_names = [f"{i+1}" for i in range(num_columns)]
-            self.plot2d_column_combos['col_1'].addItems(column_names)
-            self.plot2d_column_combos['col_1'].setCurrentIndex(0)
-            self.plot2d_column_combos['col_2'].addItems(column_names)
-            self.plot2d_column_combos['col_2'].setCurrentIndex(0)
+        self.set_status("Data shape (raw)", self.data_raw.shape)
+        self.set_status("Data shape (current)", self.data_current.shape)
         
         '''
         #TODO
@@ -580,20 +495,36 @@ class MainWindow(QMainWindow):
         (e.g. the plot functions, which might want to change their behavior based on the state of the data)
         '''
 
+    def set_status(self, key, value):
+        '''
+        Transfers the contents of status to the display
+        '''
+        self.status[key] = value
+        self.status_labels[key].setText(str(value))
 
     def load_keys_from_file(self):
 
-        list_of_key_lists = []
-        for file in self.file_path:
-            list_of_key_lists.append(get_keys(file))
-        
         key_list = []
-        for lst in list_of_key_lists:
-            key_list += lst
-            
-        key_set = list(dict.fromkeys(key_list))
-        
-        return key_set
+
+        for file in self.file_path:
+            key_list.extend(get_keys(file))
+
+        unique_keys = list(dict.fromkeys(key_list))  # preserves first-seen order
+
+        pinned = []
+        rest = []
+
+        pinned_set = set(self.pinned_keys)
+
+        for k in unique_keys:
+            if k in pinned_set:
+                pinned.append(k)
+            else:
+                rest.append(k)
+
+        rest.sort()  # alphabetical
+
+        return pinned + rest
     
 
 class PlotDefinitionWidget(QWidget):
