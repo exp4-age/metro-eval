@@ -38,6 +38,8 @@ import numpy as np
 from metro_eval.coinc.file_handler import get_keys, read_coinc
 from metro_eval.coinc.plot_functions import hist_1D
 from metro_eval.coinc.analysis_pages import CoincmapPage, SignalPage, HistogramPage
+from metro_eval.coinc.postprocessing import overlap
+
 
 class FilterRow(QWidget):
     """
@@ -91,7 +93,6 @@ class MainWindow(QMainWindow):
         self.status = {
             "File(s)": "N/A",
             "Coincidence": "N/A",
-            "Postprocessing": "N/A",
             "Bunch overlap": "N/A",
             "Calibrated": "N/A",
             "Masks applied": "N/A",
@@ -222,9 +223,25 @@ class MainWindow(QMainWindow):
         post_group = QGroupBox("Postprocessing")
         post_layout = QVBoxLayout()
 
+        choice_radio_group = QGroupBox()
+        choice_radio_layout = QHBoxLayout()
+        self.radio_off = QRadioButton("No Postprocessing")
+        self.radio_off.setChecked(True)
+        self.radio_off.toggled.connect(self.enable_postprocessing)
+        self.radio_manual = QRadioButton("Manual")
+        self.radio_manual.toggled.connect(self.enable_postprocessing)
+        self.radio_automatic = QRadioButton("automatic")
+        self.radio_automatic.toggled.connect(self.enable_postprocessing)
+        choice_radio_layout.addWidget(self.radio_off)
+        choice_radio_layout.addWidget(self.radio_manual)
+        choice_radio_layout.addWidget(self.radio_automatic)
+
+
+        choice_radio_group.setLayout(choice_radio_layout)
+        
         # CALIBRATION BOX
 
-        calibration_box = QGroupBox("Calibration")
+        self.calibration_box = QGroupBox("Calibration")
         calibration_layout = QGridLayout()
 
         self.calibration_combo = QComboBox()
@@ -247,34 +264,49 @@ class MainWindow(QMainWindow):
 
         calibration_layout.addLayout(calib_buttons, 1,0)
 
-        calibration_box.setLayout(calibration_layout)
+        self.calibration_box.setLayout(calibration_layout)
 
         # OVERLAP BOX
 
-        overlap_box = QGroupBox("Overlap bunches (manual)")
+        self.overlap_box = QGroupBox("Overlap bunches (manual)")
         overlap_layout = QGridLayout()
 
+        self.overlap_lineEdit = {}
         overlap_layout.addWidget(QLabel("Repetition time (ns)"), 0, 0)
-        overlap_layout.addWidget(QLineEdit(), 0, 1)
+        self.overlap_lineEdit["reptime"] = QLineEdit()
+        self.overlap_lineEdit['reptime'].setText("318.76") #setPlaceholderText("e.g. 318.76")
+        overlap_layout.addWidget(self.overlap_lineEdit['reptime'], 0, 1)
 
         overlap_layout.addWidget(QLabel("ROI_first (ns)"), 1, 0)
-        overlap_layout.addWidget(QLineEdit(), 1, 1)
-        overlap_layout.addWidget(QLineEdit(), 1, 2)
+        self.overlap_lineEdit['roi_first_min'] = QLineEdit()
+        self.overlap_lineEdit['roi_first_max'] = QLineEdit()
+        overlap_layout.addWidget(self.overlap_lineEdit['roi_first_min'], 1, 1)
+        overlap_layout.addWidget(self.overlap_lineEdit['roi_first_max'], 1, 2)
+
 
         overlap_layout.addWidget(QLabel("ROI_last (ns)"), 2, 0)
-        overlap_layout.addWidget(QLineEdit(), 2, 1)
-        overlap_layout.addWidget(QLineEdit(), 2, 2)
+        self.overlap_lineEdit['roi_last_min'] = QLineEdit()
+        self.overlap_lineEdit['roi_last_max'] = QLineEdit()
+        overlap_layout.addWidget(self.overlap_lineEdit['roi_last_min'], 2, 1)
+        overlap_layout.addWidget(self.overlap_lineEdit['roi_last_max'], 2, 2)
 
-        overlap_layout.addWidget(QPushButton("Apply overlap"), 3, 0)
-        overlap_layout.addWidget(QPushButton("Reset overlap"), 3, 1)
+        apply_overlap_btn = QPushButton("Apply overlap")
+        reset_overlap_btn = QPushButton("Reset  overlap")
 
-        overlap_box.setLayout(overlap_layout)
+        apply_overlap_btn.clicked.connect(self.apply_overlap)
+
+        overlap_layout.addWidget(apply_overlap_btn, 3, 0)
+        overlap_layout.addWidget(reset_overlap_btn, 3, 1)
+
+        self.overlap_box.setLayout(overlap_layout)
         
-        post_layout.addWidget(overlap_box, 1)
-        post_layout.addWidget(calibration_box, 1)
+        post_layout.addWidget(choice_radio_group, 1)
+        post_layout.addWidget(self.overlap_box, 1)
+        post_layout.addWidget(self.calibration_box, 1)
 
         post_group.setLayout(post_layout)
 
+        self.enable_postprocessing()
         return post_group
         
     def _add_masking_group(self):
@@ -404,6 +436,7 @@ class MainWindow(QMainWindow):
         self.data_current = self.data_raw
         self.data_postproc = self.data_raw
         self.data_calibrated = self.data_raw
+        self.status_reset_upon_loading()
         self.set_status("File(s)",self.file_label.text())
         self.set_status("Coincidence", key)
         self.on_array_change()
@@ -422,6 +455,36 @@ class MainWindow(QMainWindow):
 
         # self.update_plot_columns()
     
+
+
+    def apply_overlap(self):
+        
+        overlap_params = {}
+        for key in self.overlap_lineEdit.keys():
+            try:
+                overlap_params[key] = float(self.overlap_lineEdit[key].text().strip())
+            except ValueError:
+                print("Select values for all boxes!")
+                
+        
+        roi_first = (overlap_params['roi_first_min'], overlap_params['roi_first_max'])
+        roi_last = (overlap_params['roi_last_min'], overlap_params['roi_last_max'])
+        e_amount, p_amount = self.EP_number_from_string(self.status['Coincidence'])
+        
+        self.data_postproc = overlap(self.data_raw, overlap_params['reptime'], 
+                                     roi_first, roi_last, nPhotons=p_amount)
+        self.data_current = self.data_postproc
+        
+        self.set_status("Bunch overlap", True)
+        self.set_status("Masks applied", "N/A")
+        self.on_array_change()
+
+
+    def status_reset_upon_loading(self):
+        for key in self.status.keys():
+            if key == "File(s)" or key == "Coincidence":
+                self.set_status(key, "N/A")
+
 
     def add_filter(self):
         row = FilterRow()
@@ -475,6 +538,20 @@ class MainWindow(QMainWindow):
     # HELPER FUNCTIONS
     # ======================================
 
+    def enable_postprocessing(self):
+        if self.radio_off.isChecked():
+            self.overlap_box.setEnabled(False)
+            self.calibration_box.setEnabled(False)
+            self.open_calib_btn.setEnabled(True)
+        elif self.radio_manual.isChecked():
+            self.overlap_box.setEnabled(True)
+            self.calibration_box.setEnabled(False)
+        elif self.radio_automatic.isChecked():
+            self.overlap_box.setEnabled(False)
+            self.calibration_box.setEnabled(True)
+        
+
+
     def on_array_change(self):
         '''
         This function should be called whenever self.data_current is updated, to
@@ -525,6 +602,23 @@ class MainWindow(QMainWindow):
         rest.sort()  # alphabetical
 
         return pinned + rest
+    
+    @staticmethod
+    def EP_number_from_string(string):
+        if string.isalpha():
+            e_amount = string.count("E")
+            p_amount = string.count("P")
+        else:
+            e_index = string.find("E")
+            p_index = string.find("P")
+            if e_index != -1:
+                try:
+                    e_amount = int(string[:e_index])
+                    p_amount = int(string[e_index+1:p_index])
+                except ValueError:
+                    print(f"Warning: Could not evaluate {string}.")
+        return e_amount, p_amount
+
     
 
 class PlotDefinitionWidget(QWidget):
