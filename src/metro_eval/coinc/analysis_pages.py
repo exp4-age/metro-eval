@@ -13,7 +13,10 @@ from PySide6.QtWidgets import (
 )
 
 import pyqtgraph as pg
+from metro_eval.coinc.plot_functions import interactive
 
+from typing import TYPE_CHECKING
+from numpy.typing import ArrayLike, NDArray
 
 # ==========================================================
 # Base class
@@ -103,3 +106,33 @@ class HistogramPage(AnalysisPage):
     def export(self):
         print("Export histogram page")
 
+# ==========================================================
+# Histogram Page
+# ==========================================================
+
+class CoincmapPage(AnalysisPage):
+    """
+    interactive 2D coincidence map page.
+    """
+
+    def __init__(self, 
+                 data: NDArray,
+        bins: int = 50,
+        range: ArrayLike | None = None,  # noqa
+        xlabel: str = "first electron",
+        ylabel: str = "second electron",
+        units: str | None = None,):
+        super().__init__("2D Coincidence Map")
+
+        self.plot_widget = interactive(data, 
+                                       bins=bins, 
+                                       range=range, 
+                                       xlabel=xlabel, 
+                                       ylabel=ylabel, 
+                                       units=units)
+
+
+        self.main_layout.addWidget(self.plot_widget)
+
+    def export(self):
+        print("Export Coincidence Map page")

@@ -3,6 +3,7 @@ import sys
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication,
+    QLayout,
     QMainWindow,
     QWidget,
     QFileDialog,
@@ -24,8 +25,8 @@ from PySide6.QtWidgets import (
 import numpy as np
 
 from metro_eval.coinc.file_handler import get_keys, read_coinc
-from metro_eval.coinc.plot_functions import plot_1D, hist_1D
-from metro_eval.coinc.analysis_pages import SignalPage, HistogramPage
+from metro_eval.coinc.plot_functions import hist_1D
+from metro_eval.coinc.analysis_pages import CoincmapPage, SignalPage, HistogramPage
 
 class FilterRow(QWidget):
     """
@@ -91,9 +92,77 @@ class MainWindow(QMainWindow):
 
         left_panel = QVBoxLayout()
 
-        # -------------------------
-        # DATA SELECTION
-        # -------------------------
+        left_panel_width = 400
+        data_group = self._add_data_selection_group()
+        data_group.setFixedWidth(left_panel_width)
+        post_group = self._add_postprocessing_group()
+        post_group.setFixedWidth(left_panel_width)
+        masking_group = self._add_masking_group()
+        masking_group.setFixedWidth(left_panel_width)
+
+        left_panel.addWidget(data_group)
+        left_panel.addWidget(post_group)
+        left_panel.addWidget(masking_group)
+        left_panel.addStretch()
+
+        # =========================
+        # CENTER PANEL
+        # =========================
+
+        center_panel = QVBoxLayout()
+
+        center_panel_width = 300
+        status_group = self._add_status_group()
+        status_group.setFixedWidth(center_panel_width)
+        plot_group = self._add_plot_settings_group()
+        plot_group.setFixedWidth(center_panel_width)
+
+        center_panel.addWidget(status_group)
+        center_panel.addWidget(plot_group)
+        center_panel.addStretch()
+
+        # =========================
+        # RIGHT PANEL       
+        # =========================
+
+        right_panel = QVBoxLayout()
+
+        self.plot_workspace = PlotWorkspace()
+
+
+        test_btn_1d = QPushButton("Create Plot")
+        test_btn_1d.clicked.connect(
+            self.plot_workspace.create_random_signal
+        )
+        test_btn_2d = QPushButton("Create 2D Plot")
+        test_btn_2d.clicked.connect(
+            self.plot_workspace.add_random_map
+        )
+
+        self.plot_workspace.setMinimumWidth(700)
+
+        right_panel.addWidget(test_btn_1d)
+        right_panel.addWidget(test_btn_2d)
+        right_panel.addWidget(self.plot_workspace)
+
+
+        # =========================
+        # MAIN LAYOUT
+        # =========================
+
+        main_layout.addLayout(left_panel)
+        main_layout.addLayout(center_panel)
+        main_layout.addLayout(right_panel)
+
+    # =========================
+    # GUI LAYOUT
+    # =========================
+
+    def _add_data_selection_group(self):
+        ''' 
+        Reusable function to create the data selection group, which contains
+        the file selection, the dataset selection and the load button
+        '''
 
         data_group = QGroupBox("Data selection")
         data_layout = QHBoxLayout()
@@ -114,10 +183,14 @@ class MainWindow(QMainWindow):
         data_layout.addWidget(self.load_btn)
 
         data_group.setLayout(data_layout)
+        return data_group
 
-        # -------------------------
-        # POSTPROCESSING
-        # -------------------------
+
+    def _add_postprocessing_group(self):
+        '''
+        Reusable function to create the postprocessing group, which contains
+        the calibration and the overlap options
+        '''
 
         post_group = QGroupBox("Postprocessing")
         post_layout = QVBoxLayout()
@@ -175,9 +248,13 @@ class MainWindow(QMainWindow):
 
         post_group.setLayout(post_layout)
 
-        # -------------------------
-        # MASKING
-        # -------------------------
+        return post_group
+        
+    def _add_masking_group(self):
+        '''
+        Reusable function to create the masking group, which contains
+        the options for masking the data, which can be by column or by ... other options in the future
+        '''
 
         masking_group = QGroupBox("Masking")
         masking_layout = QVBoxLayout()
@@ -217,38 +294,14 @@ class MainWindow(QMainWindow):
         masking_layout.addLayout(masking_normal, 2)
 
         masking_group.setLayout(masking_layout)
+        return masking_group
+    
 
-        # -------------------------
-        # EXIT BUTTON
-        # -------------------------
-
-        bottom_layout = QHBoxLayout()
-        bottom_layout.addStretch()
-
-        self.exit_btn = QPushButton("Exit")
-        self.exit_btn.clicked.connect(self.close)
-
-        bottom_layout.addWidget(self.exit_btn)
-        bottom_layout.addStretch()
-
-        # -------------------------
-        # ADD TO LEFT PANEL
-        # -------------------------
-
-        left_panel.addWidget(data_group)
-        left_panel.addWidget(post_group)
-        left_panel.addWidget(masking_group)
-        left_panel.addStretch()
-        left_panel.addLayout(bottom_layout)
-
-        # =========================
-        # CENTER PANEL
-        # =========================
-
-        center_panel = QVBoxLayout()
-
-        # STATUS
-
+    def _add_status_group(self):
+        '''
+        #TODO
+        Display the status of the data. Implementation necessary.
+        '''
         status_group = QGroupBox("Data status")
         status_layout = QGridLayout()
 
@@ -266,13 +319,9 @@ class MainWindow(QMainWindow):
 
         status_group.setLayout(status_layout)
 
-        # PLOT SETTINGS
-
-        plot_group = QGroupBox("Plot settings")
-        plot_layout = QVBoxLayout()
-
-        # 1D PLOT
-
+        return status_group
+    
+    def _add_plot1d_group(self):
         plot1d_group = QGroupBox("1D Spectra")
         plot1d_layout = QGridLayout()
 
@@ -303,7 +352,10 @@ class MainWindow(QMainWindow):
 
         plot1d_group.setLayout(plot1d_layout)
 
-        # 2D PLOT
+        return plot1d_group
+    
+
+    def _add_plot2d_group(self):
 
         plot2d_group = QGroupBox("2D coincidence map")
         plot2d_layout = QGridLayout()
@@ -312,55 +364,60 @@ class MainWindow(QMainWindow):
         plot2d_layout.addWidget(QLabel("ranges:"), 0, 1)
         plot2d_layout.addWidget(QLabel("bins:"), 0, 3)
 
-        plot2d_layout.addWidget(QComboBox(), 1, 0)
-        plot2d_layout.addWidget(QLineEdit(), 1, 1)
-        plot2d_layout.addWidget(QLineEdit(), 1, 2)
-        plot2d_layout.addWidget(QLineEdit(), 1, 3)
-
-        plot2d_layout.addWidget(QComboBox(), 2, 0)
-        plot2d_layout.addWidget(QLineEdit(), 2, 1)
-        plot2d_layout.addWidget(QLineEdit(), 2, 2)
-        plot2d_layout.addWidget(QLineEdit(), 2, 3)
+        self.plot2d_column_combos = {}
+        self.plot2d_column_combos['col_1'] = QComboBox()
+        self.plot2d_column_combos['col_1'].setCurrentIndex(0)
+        plot2d_layout.addWidget(self.plot2d_column_combos['col_1'], 1, 0)
+        
+        self.plot2d_lineedits = {}
+        self.plot2d_lineedits['range_lo_1'] = QLineEdit()
+        self.plot2d_lineedits['range_lo_1'].setPlaceholderText("0")
+        plot2d_layout.addWidget(self.plot2d_lineedits['range_lo_1'], 1, 1)
+        self.plot2d_lineedits['range_hi_1'] = QLineEdit()
+        self.plot2d_lineedits['range_hi_1'].setPlaceholderText("200")
+        plot2d_layout.addWidget(self.plot2d_lineedits['range_hi_1'], 1, 2)
+        self.plot2d_lineedits['bins_1'] = QLineEdit()
+        self.plot2d_lineedits['bins_1'].setPlaceholderText("100")
+        plot2d_layout.addWidget(self.plot2d_lineedits['bins_1'], 1, 3)
+        
+        self.plot2d_column_combos['col_2'] = QComboBox()
+        self.plot2d_column_combos['col_2'].setCurrentIndex(0)
+        plot2d_layout.addWidget(self.plot2d_column_combos['col_2'], 2, 0)
+        self.plot2d_lineedits['range_lo_2'] = QLineEdit()
+        self.plot2d_lineedits['range_lo_2'].setPlaceholderText("0")
+        plot2d_layout.addWidget(self.plot2d_lineedits['range_lo_2'], 2, 1)
+        self.plot2d_lineedits['range_hi_2'] = QLineEdit()
+        self.plot2d_lineedits['range_hi_2'].setPlaceholderText("200")
+        plot2d_layout.addWidget(self.plot2d_lineedits['range_hi_2'], 2, 2)
+        self.plot2d_lineedits['bins_2'] = QLineEdit()
+        self.plot2d_lineedits['bins_2'].setPlaceholderText("100")
+        plot2d_layout.addWidget(self.plot2d_lineedits['bins_2'], 2, 3)
 
         plot2d_layout.addWidget(QPushButton("Advanced settings"), 3, 0, 1, 2)
-        plot2d_layout.addWidget(QPushButton("Plot"), 3, 2, 1, 2)
+        plot2d_btn = QPushButton("Plot")
+        plot2d_btn.clicked.connect(self.plot_2d)
+        plot2d_layout.addWidget(plot2d_btn, 3, 2, 1, 2)
 
         plot2d_group.setLayout(plot2d_layout)
+        return plot2d_group
+    
+        
+    def _add_plot_settings_group(self):
+
+        plot_group = QGroupBox("Plot settings")
+        plot_layout = QVBoxLayout()
+
+        plot1d_group = self._add_plot1d_group()
+        plot2d_group = self._add_plot2d_group()
+
 
         plot_layout.addWidget(plot1d_group)
         plot_layout.addWidget(plot2d_group)
 
         plot_group.setLayout(plot_layout)
 
-        center_panel.addWidget(status_group)
-        center_panel.addWidget(plot_group)
-        center_panel.addStretch()
-
-        # =========================
-        # RIGHT PANEL       
-        # =========================
-
-        right_panel = QVBoxLayout()
-
-        self.plot_workspace = PlotWorkspace()
-
-        button = QPushButton("Create Plot")
-        button.clicked.connect(
-            self.plot_workspace.create_random_signal
-        )
-
-        right_panel.addWidget(button)
-        right_panel.addWidget(self.plot_workspace)
-
-
-        # =========================
-        # MAIN LAYOUT
-        # =========================
-
-        main_layout.addLayout(left_panel, 1)
-        main_layout.addLayout(center_panel, 1)
-        main_layout.addLayout(right_panel, 2)
-
+        return plot_group
+    
     # ======================================
     # BUTTON FUNCTIONS
     # ======================================
@@ -495,6 +552,56 @@ class MainWindow(QMainWindow):
             ylabel = "Intensity (arb. units)"
         values, edges = hist_1D(self.data_current, column, range=(range_lo, range_hi), bins=bins, **hist_kwargs)
         self.plot_workspace.add_histogram_plot(values, edges[:-1], xlabel=xlabel, ylabel=ylabel, plot_kwargs=plot_kwargs)
+
+    def plot_2d(self):
+        '''
+        In construction from gui.py
+
+        Take the information from self.plot_settings_2d and plot a 2D coincidence map using plot_functions.interactive
+
+        '''
+        print("Plotting 2D coincidence map with settings:")
+        plot_settings_2D = {}
+    
+        for key, widget in self.plot2d_lineedits.items():
+            value = widget.text()
+            plot_settings_2D[key] = value
+        plot_rows = range(1,3)
+        for row in plot_rows:
+            for key in ['bins', 'range_lo', 'range_hi']:
+                try:
+                    plot_settings_2D[f"{key}_{row}"] = int(plot_settings_2D[f"{key}_{row}"])
+                except ValueError:
+                    print(f"Invalid input for {key}_{row}, using default value of 100 for bins and 0/200 for range")
+                    if key == 'bins':
+                        plot_settings_2D[f"{key}_{row}"] = 100
+                    elif key == 'range_lo':
+                        plot_settings_2D[f"{key}_{row}"] = 0
+                    elif key == 'range_hi':
+                        plot_settings_2D[f"{key}_{row}"] = 200
+            try:
+                plot_settings_2D[f"col_{row}"] = int(self.plot2d_column_combos[f"col_{row}"].currentText())-1
+            except ValueError:
+                print(f"Invalid input for col_{row}, using default value of 1")
+                plot_settings_2D[f"col_{row}"] = 1   
+        if self.data_current is None:
+            print("No data loaded, cannot plot")
+            return
+    
+        col_idx = (plot_settings_2D['col_1'], plot_settings_2D['col_2'])
+        bins = (plot_settings_2D['bins_1'], plot_settings_2D['bins_2'])
+        range_1 = (plot_settings_2D['range_lo_1'], plot_settings_2D['range_hi_1'])
+        range_2 = (plot_settings_2D['range_lo_2'], plot_settings_2D['range_hi_2'])
+    
+
+        if True:
+            units = "ns"
+            #TODO change the labels for the case of calibrated data
+
+
+        self.plot_workspace.add_coincidence_map(self.data_current[:, [col_idx[0], col_idx[1]]],
+                                                bins=bins, range=(range_1, range_2), 
+                                                units=units)
         
     
     # ======================================
@@ -527,6 +634,15 @@ class MainWindow(QMainWindow):
             column_names = [f"{i+1}" for i in range(num_columns)]
             self.plot1d_column_combo.addItems(column_names)
             self.plot1d_column_combo.setCurrentIndex(0)
+        self.plot2d_column_combos['col_1'].clear()
+        self.plot2d_column_combos['col_2'].clear()
+        if self.data_current is not None:
+            num_columns = self.data_current.shape[1]
+            column_names = [f"{i+1}" for i in range(num_columns)]
+            self.plot2d_column_combos['col_1'].addItems(column_names)
+            self.plot2d_column_combos['col_1'].setCurrentIndex(0)
+            self.plot2d_column_combos['col_2'].addItems(column_names)
+            self.plot2d_column_combos['col_2'].setCurrentIndex(0)
         
         '''
         #TODO
@@ -604,6 +720,14 @@ class PlotWorkspace(QWidget):
     def add_histogram_plot(self, values, edges, xlabel="", ylabel="", plot_kwargs=None):
         page = HistogramPage(values, edges, xlabel=xlabel, ylabel=ylabel, plot_kwargs=plot_kwargs)
         self.add_page(page)
+
+    def add_coincidence_map(self, data, bins=50, range=None, xlabel="first electron", ylabel="second electron", units=None):
+        page = CoincmapPage(data, bins=bins, range=range, xlabel=xlabel, ylabel=ylabel, units=units)
+        self.add_page(page)
+
+    def add_random_map(self):
+        data = np.random.rand(10000, 2)
+        self.add_coincidence_map(data)
 
     def create_random_signal(self):
 
