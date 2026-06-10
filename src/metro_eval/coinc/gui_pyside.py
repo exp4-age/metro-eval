@@ -412,17 +412,10 @@ class MainWindow(QMainWindow):
         plot_group = QGroupBox("Plot settings")
         plot_layout = QVBoxLayout()
 
-        plot1d_group = self._add_plot1d_group()
-        plot2d_group = self._add_plot2d_group()
-
-
         self.plot_widget = PlotDefinitionWidget()
         self.plot_widget.histogram_requested.connect(self.handle_histogram_request)
         self.plot_widget.xy_requested.connect(self.handle_xy_request)
 
-
-        plot_layout.addWidget(plot1d_group)
-        plot_layout.addWidget(plot2d_group)
         plot_layout.addWidget(self.plot_widget)
 
         plot_group.setLayout(plot_layout)
@@ -504,120 +497,7 @@ class MainWindow(QMainWindow):
         row.setParent(None)
         row.deleteLater()
 
-    def plot_1d(self):
-        '''
-        In construction from gui.py
-
-        Take the information from self.plot_settings_1d and plot a 1D histogram
-        using plot_functions.plot_1D
-
-        '''
-        print("Plotting 1D spectrum with settings:")
-        plot_settings_1D = {}
     
-        for key, widget in self.plot1d_lineedits.items():
-            value = widget.text()
-            plot_settings_1D[key] = value
-        
-        try:
-            plot_settings_1D['bins'] = int(plot_settings_1D['bins'])
-
-        except ValueError:
-            print("Invalid input for bins, using default value of 100")
-            plot_settings_1D['bins'] = 100
-        try:
-            plot_settings_1D['range_lo'] = float(plot_settings_1D['range_lo'])
-        except ValueError:
-            print("Invalid input for range_lo, using default value of 0")
-            plot_settings_1D['range_lo'] = 0
-        try:
-            plot_settings_1D['range_hi'] = float(plot_settings_1D['range_hi'])
-        except ValueError:
-            print("Invalid input for range_hi, using default value of 200")
-            plot_settings_1D['range_hi'] = 200
-        try:
-            plot_settings_1D['column'] = int(self.plot1d_column_combo.currentText())-1
-        except ValueError:
-            print("Invalid input for column, using default value of 1")
-            plot_settings_1D['column'] = 1
-
-        if self.data_current is None:
-            print("No data loaded, cannot plot")
-            return
-    
-        column = plot_settings_1D['column']
-        bins = plot_settings_1D['bins']
-        range_lo = plot_settings_1D['range_lo'] 
-        range_hi = plot_settings_1D['range_hi']
-
-        #TODO
-        ## Here, we need to add the extraction for the other values in the
-        ## self.plot_settings_1d dictionary, which can be added in the 
-        ## advanced options later
-        
-        hist_kwargs={}
-        plot_kwargs={}
-
-        if True:
-            xlabel = f"Particle {column+1} TOF (ns)"
-            ylabel = "Intensity (arb. units)"
-        values, edges = hist_1D(self.data_current, column, range=(range_lo, range_hi), bins=bins, **hist_kwargs)
-        self.plot_workspace.add_histogram_plot(values, edges[:-1], xlabel=xlabel, ylabel=ylabel, plot_kwargs=plot_kwargs)
-
-    def plot_2d(self):
-        '''
-        In construction from gui.py
-
-        Take the information from self.plot_settings_2d and plot a 2D coincidence map using plot_functions.interactive
-
-        '''
-        print("Plotting 2D coincidence map with settings:")
-        plot_settings_2D = {}
-    
-        for key, widget in self.plot2d_lineedits.items():
-            value = widget.text()
-            plot_settings_2D[key] = value
-        plot_rows = range(1,3)
-        for row in plot_rows:
-            for key in ['bins', 'range_lo', 'range_hi']:
-                try:
-                    plot_settings_2D[f"{key}_{row}"] = int(plot_settings_2D[f"{key}_{row}"])
-                except ValueError:
-                    print(f"Invalid input for {key}_{row}, using default value of 100 for bins and 0/200 for range")
-                    if key == 'bins':
-                        plot_settings_2D[f"{key}_{row}"] = 100
-                    elif key == 'range_lo':
-                        plot_settings_2D[f"{key}_{row}"] = 0
-                    elif key == 'range_hi':
-                        plot_settings_2D[f"{key}_{row}"] = 200
-            try:
-                plot_settings_2D[f"col_{row}"] = int(self.plot2d_column_combos[f"col_{row}"].currentText())-1
-            except ValueError:
-                print(f"Invalid input for col_{row}, using default value of 1")
-                plot_settings_2D[f"col_{row}"] = 1   
-        if self.data_current is None:
-            print("No data loaded, cannot plot")
-            return
-    
-        col_idx = (plot_settings_2D['col_1'], plot_settings_2D['col_2'])
-        bins = (plot_settings_2D['bins_1'], plot_settings_2D['bins_2'])
-        range_1 = (plot_settings_2D['range_lo_1'], plot_settings_2D['range_hi_1'])
-        range_2 = (plot_settings_2D['range_lo_2'], plot_settings_2D['range_hi_2'])
-    
-
-        if True:
-            units = "ns"
-            #TODO change the labels for the case of calibrated data
-
-
-        self.plot_workspace.add_coincidence_map(self.data_current[:, [col_idx[0], col_idx[1]]],
-                                                bins=bins, range=(range_1, range_2), 
-                                                units=units)
-        
-    
-    # ======================================
-    # HELPER FUNCTIONS
-    # ======================================
 
     def handle_histogram_request(self, request):
         print("Received histogram request:", request)
@@ -649,6 +529,12 @@ class MainWindow(QMainWindow):
         self.plot_workspace.add_coincidence_map(self.data_current[:, [col_idx[0], col_idx[1]]],
                                                 bins=bins, range=(range_1, range_2), 
                                                 units=units)
+
+
+
+    # ======================================
+    # HELPER FUNCTIONS
+    # ======================================
 
     def on_array_change(self):
         '''
@@ -990,8 +876,6 @@ class PlotDefinitionWidget(QWidget):
 class PlotWorkspace(QWidget):
     """
     Reusable plotting workspace.
-
-    Can be embedded into any MainWindow.
     """
 
     def __init__(self, parent=None):
