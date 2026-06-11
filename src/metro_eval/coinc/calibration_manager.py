@@ -101,6 +101,7 @@ class Calibration:
             if self.model_func is not None:
                 if self.p0 is not None:
                     self.get_conversion(set_values=True)
+                    _ = self.__format_parameters()
                     pass
         
     def populate_metadata(self, data):
@@ -207,7 +208,8 @@ class Calibration:
                 lines.append(f"{name} = {p_str} ± {e_str}")
                 if verbalize:
                   print(lines)
-            return '\n'.join(lines)
+            self.parameter_result_string = '\n'.join(lines)
+            return self.parameter_result_string
 
     def plot(self, fig_kws=None,
              xlabel="Electron time of flight / ns",

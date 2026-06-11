@@ -38,10 +38,11 @@ import logging
 
 from metro_eval.coinc.file_handler import get_keys, read_coinc
 from metro_eval.coinc.plot_functions import hist_1D
-from metro_eval.coinc.analysis_pages import CoincmapPage, SignalPage, HistogramPage
+from metro_eval.coinc.analysis_pages import CoincmapPage, SignalPage, HistogramPage, CalibrationViewPage
 from metro_eval.coinc.postprocessing import overlap
 from metro_eval.coinc.mask_functions import mask_by_column
 from metro_eval.coinc.log_widget import setup_gui_logging, LogWidget
+from metro_eval.coinc.calibration_manager import list_calibrations, load_calibration, Calibration
 
 
 
@@ -111,7 +112,7 @@ class MainWindow(QMainWindow):
 
         center_panel = QVBoxLayout()
 
-        center_panel_width = 450
+        center_panel_width = 370
         status_group = self._add_status_group()
         status_group.setFixedWidth(center_panel_width)
         plot_group = self._add_plot_settings_group()
@@ -121,6 +122,7 @@ class MainWindow(QMainWindow):
         self.log_widget = LogWidget()
         setup_gui_logging(self.log_widget)
         self.logger = logging.getLogger(__name__)
+        self.log_widget.setFixedWidth(center_panel_width)
 
         center_panel.addWidget(status_group)
         center_panel.addWidget(plot_group)
@@ -226,6 +228,7 @@ class MainWindow(QMainWindow):
 
         self.calibration_combo = QComboBox()
         self.calibration_combo.addItems(["Select calibration"])
+        self.calibration_combo.addItems([file.name for file in list_calibrations()])
         self.calibration_combo.setCurrentIndex(0)
 
         calibration_layout.addWidget(self.calibration_combo,0,0)
@@ -236,6 +239,8 @@ class MainWindow(QMainWindow):
         self.open_calib_btn = QPushButton("Open")
         self.new_calib_btn = QPushButton("New")
         self.remove_calib_btn = QPushButton("Remove")
+
+        self.open_calib_btn.clicked.connect(self.open_existing_calibration)
 
         calib_buttons.addWidget(self.apply_calib_btn, 0, 0)
         calib_buttons.addWidget(self.open_calib_btn, 0, 1)
@@ -432,12 +437,25 @@ class MainWindow(QMainWindow):
         self.on_array_change()
         self.logger.info("Overlap parameters applied!")
 
+    def open_existing_calibration(self):
+        print(self.calibration_combo.currentText())
+        fn = self.calibration_combo.currentText()
+        self.calibration = Calibration(load_calibration(
+                filename=fn))
+        '''self.calibration_view_window = CalibrationView(calibration= self.calibration)
+        self.calibration_view_window.show()'''
+        self.plot_workspace.add_calibration_view(calib=self.calibration)
 
-    def status_reset_upon_loading(self):
-        for key in self.status.keys():
-            if key == "File(s)" or key == "Coincidence":
-                self.set_status(key, "N/A")
- 
+        '''
+        try:
+            fn = self.calibration_combo.currentText()
+            self.calibration = Calibration(load_calibration(
+                filename=fn))
+            self.calibration_view_window = CalibrationView(self.calibration)
+        except:
+            self.logger.warning("No calibration selected.")
+            '''
+        
 
     def handle_histogram_request(self, request):
         print("Received histogram request:", request)
@@ -499,6 +517,13 @@ class MainWindow(QMainWindow):
     # ======================================
     # HELPER FUNCTIONS
     # ======================================
+
+    
+    def status_reset_upon_loading(self):
+        for key in self.status.keys():
+            if key == "File(s)" or key == "Coincidence":
+                self.set_status(key, "N/A")
+ 
 
     def enable_postprocessing(self):
         if self.radio_off.isChecked():
@@ -594,6 +619,15 @@ class MainWindow(QMainWindow):
         return e_amount, p_amount
 
     
+class CalibrationView(QWidget):
+    def __init__(self, calibration: Calibration | None = None, parent=None):
+        super().__init__(parent)
+
+        self.calibration = calibration
+
+        self.setWindowTitle("Calibration View")
+        self.resize(1200, 600)
+
 
 class PlotDefinitionWidget(QWidget):
 
@@ -609,7 +643,7 @@ class PlotDefinitionWidget(QWidget):
             [
                 "X",
                 "Y",
-                "Column",
+                "#electron",
                 "Min",
                 "Max",
                 "Bins",
@@ -631,13 +665,13 @@ class PlotDefinitionWidget(QWidget):
         header.setSectionResizeMode(5, QHeaderView.Fixed)        # Bins
         header.setSectionResizeMode(6, QHeaderView.Fixed)        # Button
 
-        self.table.setColumnWidth(0, 25)   # X
-        self.table.setColumnWidth(1, 25)   # Y
+        self.table.setColumnWidth(0, 12)   # X
+        self.table.setColumnWidth(1, 12)   # Y
         self.table.setColumnWidth(2, 120)  # Column (will still stretch visually)
-        self.table.setColumnWidth(3, 70)   # Min
-        self.table.setColumnWidth(4, 70)   # Max
-        self.table.setColumnWidth(5, 60)   # Bins
-        self.table.setColumnWidth(6, 60)   # Plot
+        self.table.setColumnWidth(3, 50)   # Min
+        self.table.setColumnWidth(4, 50)   # Max
+        self.table.setColumnWidth(5, 40)   # Bins
+        self.table.setColumnWidth(6, 50)   # Plot
 
         # Create button groups for X and Y radio buttons
         self.x_group = QButtonGroup(self)
@@ -1076,6 +1110,10 @@ class PlotWorkspace(QWidget):
 
     def add_coincidence_map(self, data, bins=50, range=None, xlabel="first electron", ylabel="second electron", units=None):
         page = CoincmapPage(data, bins=bins, range=range, xlabel=xlabel, ylabel=ylabel, units=units)
+        self.add_page(page)
+        
+    def add_calibration_view(self, calib:Calibration):
+        page = CalibrationViewPage(calib)
         self.add_page(page)
 
     def add_random_map(self):
