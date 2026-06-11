@@ -1,6 +1,6 @@
 import os
 import sys
-from PySide6.QtCore import Qt, Signal, QLocale
+from PySide6.QtCore import Qt, Signal, QLocale, QObject
 from PySide6.QtWidgets import (
     QApplication,
     QFormLayout,
@@ -34,42 +34,15 @@ from PySide6.QtWidgets import (
 QLocale.setDefault(QLocale(QLocale.C))  # "C" locale = dot decimal
 
 import numpy as np
+import logging
 
 from metro_eval.coinc.file_handler import get_keys, read_coinc
 from metro_eval.coinc.plot_functions import hist_1D
 from metro_eval.coinc.analysis_pages import CoincmapPage, SignalPage, HistogramPage
 from metro_eval.coinc.postprocessing import overlap
+from metro_eval.coinc.mask_functions import mask_by_column
+from metro_eval.coinc.log_widget import setup_gui_logging, LogWidget
 
-
-class FilterRow(QWidget):
-    """
-    Reusable filter row widget
-    """
-
-    def __init__(self):
-        super().__init__()
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        self.enabled = QCheckBox()
-        self.operator = QComboBox()
-        self.operator.addItems(["=", "!=", ">", "<", ">=", "<="])
-
-        self.column = QLineEdit()
-        self.column.setPlaceholderText("Column")
-
-        self.value = QLineEdit()
-        self.value.setPlaceholderText("Value")
-
-        self.remove_btn = QPushButton("Remove")
-        self.remove_btn.setFixedWidth(80)
-
-        layout.addWidget(self.enabled)
-        layout.addWidget(self.operator)
-        layout.addWidget(self.column)
-        layout.addWidget(self.value)
-        layout.addWidget(self.remove_btn)
 
 
 class MainWindow(QMainWindow):
@@ -144,9 +117,14 @@ class MainWindow(QMainWindow):
         plot_group = self._add_plot_settings_group()
         plot_group.setFixedWidth(center_panel_width)
 
+        # Logging
+        self.log_widget = LogWidget()
+        setup_gui_logging(self.log_widget)
+        self.logger = logging.getLogger(__name__)
 
         center_panel.addWidget(status_group)
         center_panel.addWidget(plot_group)
+        center_panel.addWidget(self.log_widget)
         center_panel.addStretch()
 
         # =========================
@@ -181,6 +159,8 @@ class MainWindow(QMainWindow):
         main_layout.addLayout(left_panel)
         main_layout.addLayout(center_panel)
         main_layout.addLayout(right_panel)
+
+        self.logger.info("Application started")
 
     # =========================
     # GUI LAYOUT
@@ -318,39 +298,11 @@ class MainWindow(QMainWindow):
         masking_group = QGroupBox("Masking")
         masking_layout = QVBoxLayout()
 
-        # LEFT SIDE
-
-        masking_normal = QVBoxLayout()
-
-        masking_by_column = QGroupBox("Masking by column")
-        masking_by_column_layout = QVBoxLayout()
-
-        self.filter_container = QVBoxLayout()
-
-        self.add_filter()
-
-        self.add_filter_btn = QPushButton("Add Filter")
-        self.add_filter_btn.clicked.connect(self.add_filter)
-
-        masking_by_column_layout.addLayout(self.filter_container)
-        masking_by_column_layout.addWidget(self.add_filter_btn)
-
-        masking_by_column.setLayout(masking_by_column_layout)
-
-        filter_buttons = QHBoxLayout()
-
-        self.apply_filters_btn = QPushButton("Apply filters")
-        self.remove_filters_btn = QPushButton("Remove filters")
-
-        filter_buttons.addWidget(self.apply_filters_btn)
-        filter_buttons.addWidget(self.remove_filters_btn)
-
-        masking_normal.addWidget(masking_by_column)
-        masking_normal.addLayout(filter_buttons)
-
+        self.masking_wdgt = MaskSelectionWidget()
+        masking_layout.addWidget(self.masking_wdgt)
         
+        self.masking_wdgt.masking_requested.connect(self.handle_masking_request)
 
-        masking_layout.addLayout(masking_normal, 2)
 
         masking_group.setLayout(masking_layout)
         return masking_group
@@ -392,6 +344,8 @@ class MainWindow(QMainWindow):
 
         return plot_group
     
+
+
     # ======================================
     # BUTTON FUNCTIONS
     # ======================================
@@ -440,6 +394,7 @@ class MainWindow(QMainWindow):
         self.set_status("File(s)",self.file_label.text())
         self.set_status("Coincidence", key)
         self.on_array_change()
+        self.logger.info(f"Coincidence {key} from file(s) {self.file_label.text()} loaded!")
 
         '''
         label_old = self.file_label.text()
@@ -451,10 +406,7 @@ class MainWindow(QMainWindow):
             label = f"Loaded {key} data from {label_old}"
         self.file_label.setText(label)
         '''
-        print(f"Loaded data with shape {self.data_raw.shape} from files: {self.file_path}")
-
-        # self.update_plot_columns()
-    
+        
 
 
     def apply_overlap(self):
@@ -469,7 +421,7 @@ class MainWindow(QMainWindow):
         
         roi_first = (overlap_params['roi_first_min'], overlap_params['roi_first_max'])
         roi_last = (overlap_params['roi_last_min'], overlap_params['roi_last_max'])
-        e_amount, p_amount = self.EP_number_from_string(self.status['Coincidence'])
+        _, p_amount = self.EP_number_from_string(self.status['Coincidence'])
         
         self.data_postproc = overlap(self.data_raw, overlap_params['reptime'], 
                                      roi_first, roi_last, nPhotons=p_amount)
@@ -478,28 +430,14 @@ class MainWindow(QMainWindow):
         self.set_status("Bunch overlap", True)
         self.set_status("Masks applied", "N/A")
         self.on_array_change()
+        self.logger.info("Overlap parameters applied!")
 
 
     def status_reset_upon_loading(self):
         for key in self.status.keys():
             if key == "File(s)" or key == "Coincidence":
                 self.set_status(key, "N/A")
-
-
-    def add_filter(self):
-        row = FilterRow()
-
-        row.remove_btn.clicked.connect(
-            lambda: self.remove_filter(row)
-        )
-
-        self.filter_container.addWidget(row)
-
-    def remove_filter(self, row):
-        row.setParent(None)
-        row.deleteLater()
-
-    
+ 
 
     def handle_histogram_request(self, request):
         print("Received histogram request:", request)
@@ -509,16 +447,17 @@ class MainWindow(QMainWindow):
         range_hi = request['max']
 
         if self.data_current is None:
-            print("No data loaded, cannot plot")
+            self.logger.warning("No data loaded, cannot plot")
             return
 
         x, y = hist_1D(self.data_current, col_idx, range=(range_lo, range_hi), bins=bins)
         self.plot_workspace.add_histogram_plot(x, y[:-1], xlabel=f"Particle {col_idx+1}", ylabel="Intensity")
+        self.logger.info("Histogram plotted")
 
     def handle_xy_request(self, request):
 
         if self.data_current is None:
-            print("No data loaded, cannot plot")
+            self.logger.warning("No data loaded, cannot plot")
             return
 
         col_idx = (request['x']['column']-1, request['y']['column']-1)
@@ -531,9 +470,32 @@ class MainWindow(QMainWindow):
         self.plot_workspace.add_coincidence_map(self.data_current[:, [col_idx[0], col_idx[1]]],
                                                 bins=bins, range=(range_1, range_2), 
                                                 units=units)
+        self.logger.info("Coincidence map plotted")
 
+    def handle_masking_request(self, request):
+        
+        if self.data_current is None:
+            self.logger.warning("No data loaded, cannot mask")
+            return
+        data = self.data_postproc
+        filters = []
+        for row in request:
+            col_idx = row["column"]-1
+            lo = row["min"]
+            hi = row["max"]
+            mask = (lo,hi)
+            data = mask_by_column(data, col_idx, mask)
+            filters.append((col_idx, mask))
+        
+        self.data_current=data
+        if filters == []:
+            filters = [()]
+        
+        self.set_status("Masks applied", filters)
+        self.logger.info(f"Masks applied {filters}")
+        self.on_array_change()
 
-
+        
     # ======================================
     # HELPER FUNCTIONS
     # ======================================
@@ -561,6 +523,7 @@ class MainWindow(QMainWindow):
         # Update status labels
         if self.data_current is None:
             return
+        self.logger.info("The current data was changed.")
         self.set_status("Data shape (raw)", self.data_raw.shape)
         self.set_status("Data shape (current)", self.data_current.shape)
         
@@ -577,7 +540,18 @@ class MainWindow(QMainWindow):
         Transfers the contents of status to the display
         '''
         self.status[key] = value
-        self.status_labels[key].setText(str(value))
+        if key == "Masks applied":
+            if value == [()]:
+                filter_string = "N/A__"
+            else:
+                filter_string=""
+                for entry in value:
+                    col_idx, mask = entry
+                    filter_string += f"{col_idx+1}: {mask}; "
+                
+            self.status_labels[key].setText(filter_string[:-2])
+        else:
+            self.status_labels[key].setText(str(value))
 
     def load_keys_from_file(self):
 
@@ -897,6 +871,167 @@ class PlotDefinitionWidget(QWidget):
 
         self.xy_requested.emit(request)
 
+class MaskSelectionWidget(QWidget):
+
+    masking_requested = Signal(list)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        self.table = QTableWidget(0, 4)
+
+        self.table.setHorizontalHeaderLabels(
+            [
+                "Use",
+                "Column",
+                "Min",
+                "Max",
+            ]
+        )
+        
+        self.table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch
+        )
+
+        self.add_button = QPushButton("Add Row")
+        self.remove_button = QPushButton("Remove Selected Rows")
+        self.apply_button = QPushButton("Apply")
+
+        button_layout = QHBoxLayout()
+        button_layout.addWidget(self.add_button)
+        button_layout.addWidget(self.remove_button)
+        button_layout.addStretch()
+        button_layout.addWidget(self.apply_button)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.table)
+        layout.addLayout(button_layout)
+
+        self.add_button.clicked.connect(self.add_row)
+        self.remove_button.clicked.connect(
+            self.remove_selected_rows
+        )
+        self.apply_button.clicked.connect(
+            self.request_masking
+        )
+
+        self.add_row()
+
+    # --------------------------------------------------
+    # Row management
+    # --------------------------------------------------
+
+    def add_row(self):
+
+        row = self.table.rowCount()
+        self.table.insertRow(row)
+
+        use_check = QCheckBox()
+        use_check.setText("")
+        use_check.setFixedSize(20,20)
+        
+        col_combo = QComboBox()
+        col_combo.addItems([f"{i+1}" for i in range(10)])
+
+        min_dsb = QDoubleSpinBox()
+        min_dsb.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+        min_dsb.setRange(-1e10, 1e10)
+        min_dsb.setDecimals(1)
+        min_dsb.setValue(0)
+        min_dsb.setButtonSymbols(QDoubleSpinBox.NoButtons)
+
+        max_dsb = QDoubleSpinBox()
+        max_dsb.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+        max_dsb.setRange(-1e10, 1e10)
+        max_dsb.setDecimals(1)
+        max_dsb.setValue(400)
+        max_dsb.setButtonSymbols(QDoubleSpinBox.NoButtons)
+
+        self.table.setCellWidget(row, 0, use_check)
+        self.table.setCellWidget(row, 1, col_combo)
+        self.table.setCellWidget(row, 2, min_dsb)
+        self.table.setCellWidget(row, 3, max_dsb)
+
+    def remove_selected_rows(self):
+
+        rows = sorted(
+            {idx.row() for idx in self.table.selectedIndexes()},
+            reverse=True,
+        )
+
+        for row in rows:
+            self.table.removeRow(row)
+
+    # --------------------------------------------------
+    # Checkbox handling
+    # --------------------------------------------------
+
+    def get_selected_rows(self):
+
+        selected_rows = []
+        for row in range(self.table.rowCount()):
+
+            if self.table.cellWidget(row, 0).isChecked():
+                selected_rows.append(row)
+
+        return selected_rows
+
+    # --------------------------------------------------
+    # Helpers
+    # --------------------------------------------------
+
+    def get_row_definition(self, row):
+
+        column = (
+            self.table.cellWidget(row, 1)
+            .currentText()
+            .strip()
+        )
+
+        min_text = (
+            self.table.cellWidget(row, 2)
+            .text()
+            .strip()
+        )
+
+        max_text = (
+            self.table.cellWidget(row, 3)
+            .text()
+            .strip()
+        )
+
+        return {
+            "column": int(column),
+            "min": float(min_text)
+            if min_text
+            else None,
+            "max": float(max_text)
+            if max_text
+            else None,
+            "type": "standard"
+        }
+
+    # --------------------------------------------------
+    # request masking
+    # --------------------------------------------------
+
+    def request_masking(self):
+
+        selected_rows = self.get_selected_rows()
+        request = []
+        if selected_rows == []:
+            QMessageBox.information(
+                self, 
+                "Information",
+                "No filter selected. Filters are disapplied from data."
+            )
+            self.masking_requested.emit(request)
+            return
+        
+        for row in selected_rows:
+            request.append(self.get_row_definition(row))
+
+        self.masking_requested.emit(request)
 
 class PlotWorkspace(QWidget):
     """
@@ -953,6 +1088,7 @@ class PlotWorkspace(QWidget):
         y = np.random.randn(1000).cumsum()
 
         self.add_signal_plot(x, y)
+
 
 
 # ==========================================
