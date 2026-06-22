@@ -24,6 +24,8 @@
         "p0" : [1,1e2,1e4,1e6]
     },
 
+    "Comments": "Descriptive comments",
+
     "calibration_points" : [
         [ 697.0 , 6.0 , 6.5 , 0.5 ] ,
         [ 585.8 , 3.5 , 7.5 , 0.5 ] ,

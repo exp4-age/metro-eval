@@ -91,7 +91,16 @@ class Calibration:
     def __init__(self, calibration_dict: Dict | None = None):
         
         self.calibration_dict=calibration_dict
-        
+        self.x_values = []
+        self.x_err = []
+        self.y_values = []
+        self.y_err = []
+        self.comments = ""
+        self.method=None
+        self.model_func=None
+        self.p0=None
+        self.metadata=None
+
         if calibration_dict is not None:
             self.load_dict(calibration_dict)
         
@@ -122,6 +131,8 @@ class Calibration:
             self.model_func = models.MODELS[data_dict['model_type']]
         if 'bunch_overlap' in data_dict:
             self.bunch_overlap_params = data_dict["bunch_overlap"]
+        if 'Comments' in data_dict:
+            self.comments = data_dict["Comments"]
             
             
         if self.x_values is None or self.y_values is None:
@@ -327,6 +338,10 @@ class Calibration:
         filename = f"{self.metadata.experiment}_{self.metadata.setting}_{self.metadata.index}_{self.metadata.author}_{self.metadata.version}.json"
         return filename
 
+
+#######################
+# For tkinter
+#######################
 @dataclass
 class CalibrationManager:
     author: Any = None
@@ -470,12 +485,6 @@ class CalibrationView:
         # ---- calibration plot
         calib_view = ttk.Frame(plot_wdw, padding=10, relief="solid")
         calib_view.grid(row=2, column=0, padx=5, pady=5, sticky="nsew")
-        
-        
-        
-        
-        
-        
         
         
     def browse_file(self):

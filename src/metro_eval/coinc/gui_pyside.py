@@ -44,7 +44,7 @@ from metro_eval.coinc.analysis_pages import CoincmapPage, SignalPage, HistogramP
 from metro_eval.coinc.postprocessing import overlap
 from metro_eval.coinc.mask_functions import mask_by_column
 from metro_eval.coinc.log_widget import setup_gui_logging, LogWidget
-from metro_eval.coinc.calibration_manager import list_calibrations, load_calibration, Calibration
+from metro_eval.coinc.calibration_manager import list_calibrations, load_calibration, Calibration, save_calibration
 
 
 
@@ -708,25 +708,17 @@ class CalibrationEditor(QMainWindow):
         
 
         self.setWindowTitle("Calibration Editor")
-        self.resize(1200, 600)
+        #self.resize(1200, 600)
         
-        self.points_table = QTableWidget()
-        self.points_table.setHorizontalHeaderLabels(
-            [
-                "TOF",
-                "ΔTOF",
-                "E",
-                "ΔE"
-            ]
-        )
-
+        
         
         splitter = QSplitter()
 
 
         self.data_info_panel = self._add_data_info_panel()
+        self.data_point_panel = self._add_points_panel()
         splitter.addWidget(self.data_info_panel)
-        splitter.addWidget(self._add_points_panel())
+        splitter.addWidget(self.data_point_panel)
         #splitter.addWidget(self._add_build_plot_panel())
 
         self.setCentralWidget(splitter)
@@ -757,18 +749,99 @@ class CalibrationEditor(QMainWindow):
             edit = QLineEdit()
             self.fields[field_name] = edit
             form.addRow(field_name + ":", edit)
-        
+        if self.calibration.metadata is not None:
+            self.fields["experiment"].setText(str(self.calibration.metadata.experiment))
+            self.fields["setting"].setText(str(self.calibration.metadata.setting))
+            self.fields["author"].setText(str(self.calibration.metadata.author))
+            self.fields["version"].setText(str(self.calibration.metadata.version))
+            self.fields["index"].setText(str(self.calibration.metadata.index))
+            
+        self.fields["Comments"] = QTextEdit()
+        form.addRow("Comments:", self.fields["Comments"])
+        self.fields["Comments"].setText(self.calibration.comments)
+
+        self.save_btn = QPushButton("Save")
+        self.save_btn.clicked.connect(self.save)
+
         info_layout = QVBoxLayout()
         info_layout.addLayout(form)
+        info_layout.addWidget(self.save_btn)
+
 
         info_group.setLayout(info_layout)
         return info_group
 
-    def _add_points_table(self):
+    def save(self):
+        self.populate_calibration_from_edits()
+        save_calibration(self.calibration.calibration_dict)
+
+    def populate_calibration_from_edits(self):
+        info = {}
+        
+        for field in self.fields.keys():
+            if field == "Comments":
+                info[field] = self.fields[field].toPlainText()
+            else:
+                info[field] = self.fields[field].text()
+
+        info["calibration_points"] = self.get_calibration_points()
+        self.calibration = Calibration(info)
+        
+
+
+    def get_calibration_points(self):
+
+        points = []
+
+        for row in range(self.points_table.rowCount()):
+
+            point = []
+
+            for col in range(4):
+
+                item = self.points_table.item(row, col)
+
+                if item is None:
+                    value = None
+                else:
+                    value = float(item.text())
+
+                point.append(value)
+
+            points.append(point)
+
+        return points
+
+    def _add_points_panel(self):
+        points_panel = QGroupBox("Calibration points")
+
+        points_layout = QVBoxLayout()
+
+        self.points_table = QTableWidget()
+        self.points_table.setColumnCount(4)
+        self.points_table.setHorizontalHeaderLabels(
+            [
+                "TOF",
+                "ΔTOF",
+                "E",
+                "ΔE"
+            ]
+        )
+
+
+        self.populate_points_table()
+
+        points_layout.addWidget(self.points_table)
+        
+        points_panel.setLayout(points_layout)
+        return points_panel
+
+    def populate_points_table(self):
 
         n = len(self.calibration.x_values)
 
         self.points_table.setRowCount(n)
+        
 
         for row in range(n):
 
@@ -791,6 +864,7 @@ class CalibrationEditor(QMainWindow):
                 row, 3,
                 QTableWidgetItem(str(self.calibration.y_err[row]))
             )
+    
 
 
 
