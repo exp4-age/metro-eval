@@ -252,6 +252,7 @@ class MainWindow(QMainWindow):
         self.open_calib_btn.clicked.connect(self.open_existing_calibration)
         self.edit_calib_btn.clicked.connect(self.edit_calibration_in_editor)
         self.apply_calib_btn.clicked.connect(self.apply_calibration)
+        self.remove_calib_btn.clicked.connect(self.remove_calibration)
 
         calib_buttons.addWidget(self.apply_calib_btn, 0, 0)
         calib_buttons.addWidget(self.open_calib_btn, 0, 1)
@@ -290,6 +291,7 @@ class MainWindow(QMainWindow):
         reset_overlap_btn = QPushButton("Reset  overlap")
 
         apply_overlap_btn.clicked.connect(self.apply_overlap)
+        reset_overlap_btn.clicked.connect(self.reset_overlap)
 
         overlap_layout.addWidget(apply_overlap_btn, 3, 0)
         overlap_layout.addWidget(reset_overlap_btn, 3, 1)
@@ -366,6 +368,8 @@ class MainWindow(QMainWindow):
     # BUTTON FUNCTIONS
     # ======================================
 
+    #### Data selection
+
     def browse_file(self):
         file_path, _ = QFileDialog.getOpenFileNames(
             self,
@@ -412,73 +416,32 @@ class MainWindow(QMainWindow):
         self.on_array_change()
         self.logger.info(f"Coincidence {key} from file(s) {self.file_label.text()} loaded!")
 
-        '''
-        label_old = self.file_label.text()
-        if "Loaded" in self.file_label.text():
-            label = label_old
-        elif label_old == self.file_label.text():
-            label = f"Select a file to load {key} data"
-        else:
-            label = f"Loaded {key} data from {label_old}"
-        self.file_label.setText(label)
-        '''
-        
-    def read_manual_overlap_params(self):
-        overlap_params = {}
-        for key in self.overlap_lineEdit.keys():
-            try:
-                overlap_params[key] = float(self.overlap_lineEdit[key].text().strip())
-            except ValueError:
-                print("Select values for all boxes!")
-        return overlap_params
-
-
-
-    def apply_overlap_core(self, overlap_params=None):
-        '''
-        Core functionality to apply overlap to data.
-        '''
-        
-        roi_first = (overlap_params['roi_first_min'], overlap_params['roi_first_max'])
-        roi_last = (overlap_params['roi_last_min'], overlap_params['roi_last_max'])
-        _, p_amount = self.EP_number_from_string(self.status['Coincidence'])
-        
-        self.data_postproc = overlap(self.data_raw, overlap_params['reptime'], 
-                                     roi_first, roi_last, nPhotons=p_amount)
-        self.data_current = self.data_postproc
-        
-        self.set_status("Bunch overlap", True)
-        self.set_status("Masks applied", "N/A")
-        self.on_array_change()
-        self.logger.info("Overlap parameters applied!")
+    #### Manual bunch overlap
 
     def apply_overlap(self):
         overlap_params = self.read_manual_overlap_params()
         self.apply_overlap_core(overlap_params)
 
+    def reset_overlap(self):
+        self.data_current=self.data_raw
+        self.data_postproc = self.data_raw
+        self.data_calibrated = self.data_raw
+        self.on_array_change()
+        self.logger.info("Data was changed to raw.")
+        self.set_status("Bunch overlap", "N/A")
+        self.set_status("Calibrated", "N/A")
+        self.set_status("Masks applied", "N/A")
+
+    #### Calibration utility
 
     def open_existing_calibration(self):
-        print(self.calibration_combo.currentText())
-        fn = self.calibration_combo.currentText()
-        self.calibration = Calibration(load_calibration(
-                filename=fn))
-        '''self.calibration_view_window = CalibrationView(calibration= self.calibration)
-        self.calibration_view_window.show()'''
-        self.plot_workspace.add_calibration_view(calib=self.calibration)
-
-        '''
-        try:
-            fn = self.calibration_combo.currentText()
-            self.calibration = Calibration(load_calibration(
-                filename=fn))
-            self.calibration_view_window = CalibrationView(self.calibration)
-        except:
-            self.logger.warning("No calibration selected.")
-            '''
+        calibration = self.get_selected_calibration()
+        self.plot_workspace.add_calibration_view(calib=calibration)
         
     def open_new_calibration_in_editor(self):
-        self.calibration_editor = CalibrationEditor(calibration = None)
+        self.calibration_editor = CalibrationEditor()
         self.calibration_editor.show()
+        self.logger.info("Opening new calibration")
 
     def edit_calibration_in_editor(self):
 
@@ -490,39 +453,29 @@ class MainWindow(QMainWindow):
         
 
         self.calibration_editor.show()
+        self.logger.info("Editing existing calibration.")
 
     def apply_calibration(self):
         if self.data_current is None:
-            print("No data loaded, nothing to calibrate.")
+            self.logger.warning("No data loaded, nothing to calibrate.")
             return
         
         self.calibration = self.get_selected_calibration()
-
+        self.logger.info(self.calibration.bunch_overlap_params)
         overlap_params = self.calibration.bunch_overlap_params
         self.data_postproc = self.apply_overlap_core(overlap_params=overlap_params)
         self.calibrate()
+        self.set_status("Calibrated", "Yes, "+self.calibration.generate_filename())
         
-
-    def calibrate(self):
         
-        self.data_calibrated = self.calibration.convert(self.data_postproc)
-        self.set_status("Calibrated", True)
+        
+    def remove_calibration(self):
+        '''
+        Sets self.calibration=None and changes data_current to data_raw
+        '''
+        self.data_current = self.data_raw
         self.on_array_change()
-        self.logger.info("Data calibrated")
-
-
-    def get_selected_calibration(self):
-        name = self.calibration_combo.currentText()
-        if name == "Select calibration":
-            self.logger.error("Choose valid calibration!")
-            return 
-        calibration = Calibration(
-            load_calibration(filename=name)
-        )
-        return calibration
-        
-        
-  
+        self.logger.info("data is changed to raw data")
                     
 
         
@@ -636,7 +589,7 @@ class MainWindow(QMainWindow):
         '''
         self.status[key] = value
         if key == "Masks applied":
-            if value == [()]:
+            if value == [()] or value == "N/A":
                 filter_string = "N/A__"
             else:
                 filter_string=""
@@ -672,6 +625,64 @@ class MainWindow(QMainWindow):
 
         return pinned + rest
     
+    #### Applying bunch overlap
+
+    def read_manual_overlap_params(self):
+        overlap_params = {}
+        for key in self.overlap_lineEdit.keys():
+            try:
+                overlap_params[key] = float(self.overlap_lineEdit[key].text().strip())
+            except ValueError:
+                print("Select values for all boxes!")
+
+        overlap_params["ROI_first"] = [overlap_params["roi_first_min"], overlap_params["roi_first_max"]]
+        overlap_params["ROI_last"] = [overlap_params["roi_last_min"], overlap_params["roi_last_max"]]
+        overlap_params["repetition_time"] = overlap_params["reptime"]
+        return overlap_params
+
+
+
+    def apply_overlap_core(self, overlap_params=None):
+        '''
+        Core functionality to apply overlap to data.
+        '''
+        
+        roi_first = overlap_params["ROI_first"]
+        roi_last = overlap_params["ROI_last"]
+        _, p_amount = self.EP_number_from_string(self.status['Coincidence'])
+        
+        self.data_postproc = overlap(self.data_raw, overlap_params['repetition_time'], 
+                                     roi_first, roi_last, nPhotons=p_amount)
+        self.data_current = self.data_postproc
+        
+        self.set_status("Bunch overlap", True)
+        self.set_status("Masks applied", "N/A")
+        self.on_array_change()
+        self.logger.info("Overlap parameters applied!")
+    
+    #### Calibration helper functions
+
+    
+    def calibrate(self):
+        
+        self.data_calibrated = self.calibration.convert(self.data_postproc)
+        self.on_array_change()
+        self.logger.info("Data calibrated")
+
+
+    def get_selected_calibration(self):
+        name = self.calibration_combo.currentText()
+        if name == "Select calibration":
+            self.logger.error("Choose valid calibration!")
+            return 
+        calibration = Calibration(
+            load_calibration(filename=name)
+        )
+        return calibration
+    
+    #### other methods
+
+    
     @staticmethod
     def EP_number_from_string(string):
         if string.isalpha():
@@ -698,7 +709,7 @@ class CalibrationEditor(QMainWindow):
 
         self.setWindowTitle("Calibration Editor")
         self.resize(1200, 600)
-        '''
+        
         self.points_table = QTableWidget()
         self.points_table.setHorizontalHeaderLabels(
             [
@@ -732,6 +743,7 @@ class CalibrationEditor(QMainWindow):
         self.panel1.addWidget(self.data_info_panel)
 
         self.main_layout.addLayout(self.panel1)
+        '''
         
 
         

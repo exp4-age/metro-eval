@@ -88,21 +88,21 @@ class ExperimentMetadata():
         return cls(**filtered)
 
 class Calibration:
-    def __init__(self, calibration_dict):
+    def __init__(self, calibration_dict: Dict | None = None):
         
         self.calibration_dict=calibration_dict
         
         if calibration_dict is not None:
             self.load_dict(calibration_dict)
         
-        self.populate_metadata(calibration_dict)
+            self.populate_metadata(calibration_dict)
         
-        if self.method is not None:
-            if self.model_func is not None:
-                if self.p0 is not None:
-                    self.get_conversion(set_values=True)
-                    _ = self.__format_parameters()
-                    pass
+            if self.method is not None:
+                if self.model_func is not None:
+                    if self.p0 is not None:
+                        self.get_conversion(set_values=True)
+                        _ = self.__format_parameters()
+                        pass
         
     def populate_metadata(self, data):
         self.metadata = ExperimentMetadata.from_dict(data)
@@ -321,7 +321,11 @@ class Calibration:
         sigma_of_difference = np.sqrt(variance_of_difference)
         
         return sigma_of_difference
-
+    
+    def generate_filename(self):
+        self.metadata.experiment
+        filename = f"{self.metadata.experiment}_{self.metadata.setting}_{self.metadata.index}_{self.metadata.author}_{self.metadata.version}.json"
+        return filename
 
 @dataclass
 class CalibrationManager:
