@@ -3,6 +3,7 @@ import sys
 from PySide6.QtCore import Qt, Signal, QLocale, QObject
 from PySide6.QtWidgets import (
     QApplication,
+    QTableWidgetItem,
     QFormLayout,
     QLayout,
     QMainWindow,
@@ -29,6 +30,7 @@ from PySide6.QtWidgets import (
     QRadioButton,
     QDoubleSpinBox,
     QSpinBox,
+    QSplitter,
 )
 
 QLocale.setDefault(QLocale(QLocale.C))  # "C" locale = dot decimal
@@ -63,6 +65,8 @@ class MainWindow(QMainWindow):
         self.data_raw = None
         self.data_calibrated = None
         self.data_current = None
+
+        self.calibration_editor=None
 
         self.status = {
             "File(s)": "N/A",
@@ -241,6 +245,7 @@ class MainWindow(QMainWindow):
         self.remove_calib_btn = QPushButton("Remove")
 
         self.open_calib_btn.clicked.connect(self.open_existing_calibration)
+        self.new_calib_btn.clicked.connect(self.open_calibration_editor)
 
         calib_buttons.addWidget(self.apply_calib_btn, 0, 0)
         calib_buttons.addWidget(self.open_calib_btn, 0, 1)
@@ -456,6 +461,29 @@ class MainWindow(QMainWindow):
             self.logger.warning("No calibration selected.")
             '''
         
+    def open_calibration_editor(self):
+
+        fn = self.calibration_combo.currentText()
+        if fn == "Select calibration":
+            self.logger.error("Choose valid calibration!")
+            return 
+
+        calibration = Calibration(
+            load_calibration(filename=fn)
+        )
+
+        self.calibration_editor = CalibrationEditor(
+            calibration=calibration
+        )
+        
+
+        self.calibration_editor.show()
+        self.calibration_editor.raise_()
+        self.calibration_editor.activateWindow()
+  
+                    
+
+        
 
     def handle_histogram_request(self, request):
         print("Received histogram request:", request)
@@ -619,14 +647,97 @@ class MainWindow(QMainWindow):
         return e_amount, p_amount
 
     
-class CalibrationView(QWidget):
+class CalibrationEditor(QMainWindow):
     def __init__(self, calibration: Calibration | None = None, parent=None):
         super().__init__(parent)
 
-        self.calibration = calibration
+        self.calibration = calibration or Calibration()
+        
 
-        self.setWindowTitle("Calibration View")
+        self.setWindowTitle("Calibration Editor")
         self.resize(1200, 600)
+        '''
+        self.points_table = QTableWidget()
+        self.points_table.setHorizontalHeaderLabels(
+            [
+                "TOF",
+                "ΔTOF",
+                "E",
+                "ΔE"
+            ]
+        )
+
+        
+        splitter = QSplitter()
+
+
+        self.data_info_panel = self._add_data_info_panel()
+        splitter.addWidget(self.data_info_panel)
+        splitter.addWidget(self._add_points_panel())
+        #splitter.addWidget(self._add_build_plot_panel())
+
+        self.setCentralWidget(splitter)
+        '''
+        central = QWidget()
+        self.setCentralWidget(central)
+
+        self.main_layout = QHBoxLayout(central)
+
+        self.panel1 = QVBoxLayout()
+
+
+        self.data_info_panel = self._add_data_info_panel()
+        self.panel1.addWidget(self.data_info_panel)
+
+        self.main_layout.addLayout(self.panel1)
+        
+
+        
+    def _add_data_info_panel(self):
+        info_group = QGroupBox("General information")
+        self.fields = {}
+
+        form = QFormLayout()
+
+        for field_name in ["experiment", "setting", "author", "version", "index"]:
+            edit = QLineEdit()
+            self.fields[field_name] = edit
+            form.addRow(field_name + ":", edit)
+        
+        info_layout = QVBoxLayout()
+        info_layout.addLayout(form)
+
+        info_group.setLayout(info_layout)
+        return info_group
+
+    def _add_points_table(self):
+
+        n = len(self.calibration.x_values)
+
+        self.points_table.setRowCount(n)
+
+        for row in range(n):
+
+            self.points_table.setItem(
+                row, 0,
+                QTableWidgetItem(str(self.calibration.x_values[row]))
+            )
+
+            self.points_table.setItem(
+                row, 1,
+                QTableWidgetItem(str(self.calibration.x_err[row]))
+            )
+
+            self.points_table.setItem(
+                row, 2,
+                QTableWidgetItem(str(self.calibration.y_values[row]))
+            )
+
+            self.points_table.setItem(
+                row, 3,
+                QTableWidgetItem(str(self.calibration.y_err[row]))
+            )
+
 
 
 class PlotDefinitionWidget(QWidget):

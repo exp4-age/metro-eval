@@ -143,7 +143,7 @@ if __name__ == "__main__":
     arr1 = generate_array(cols=2, max_value=length, offset=offset)
     arr2 = generate_array(cols=2, max_value=length, offset=(offset+repetition_time))
     arr = np.vstack((arr1, arr2))
-    from plot_functions import plot_2D, bin_2D
+    from metro_eval.coinc.plot_functions import plot_2D, bin_2D
     
     coinc, xedges, yedges = bin_2D(arr, (0,1), bins=bins,
                                    range=hist_range)
