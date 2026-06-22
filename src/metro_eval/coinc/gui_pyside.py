@@ -235,24 +235,30 @@ class MainWindow(QMainWindow):
         self.calibration_combo.addItems([file.name for file in list_calibrations()])
         self.calibration_combo.setCurrentIndex(0)
 
+        self.new_calib_btn = QPushButton("New")
+        self.new_calib_btn.clicked.connect(self.open_new_calibration_in_editor)
+
         calibration_layout.addWidget(self.calibration_combo,0,0)
+        calibration_layout.addWidget(self.new_calib_btn,0,1)
 
         calib_buttons = QGridLayout()
 
+
         self.apply_calib_btn = QPushButton("Apply")
         self.open_calib_btn = QPushButton("Open")
-        self.new_calib_btn = QPushButton("New")
+        self.edit_calib_btn = QPushButton("Edit")
         self.remove_calib_btn = QPushButton("Remove")
 
         self.open_calib_btn.clicked.connect(self.open_existing_calibration)
-        self.new_calib_btn.clicked.connect(self.open_calibration_editor)
+        self.edit_calib_btn.clicked.connect(self.edit_calibration_in_editor)
+        self.apply_calib_btn.clicked.connect(self.apply_calibration)
 
         calib_buttons.addWidget(self.apply_calib_btn, 0, 0)
         calib_buttons.addWidget(self.open_calib_btn, 0, 1)
-        calib_buttons.addWidget(self.new_calib_btn, 1, 0)
+        calib_buttons.addWidget(self.edit_calib_btn, 1, 0)
         calib_buttons.addWidget(self.remove_calib_btn, 1, 1)
 
-        calibration_layout.addLayout(calib_buttons, 1,0)
+        calibration_layout.addLayout(calib_buttons, 1,0,1,2)
 
         self.calibration_box.setLayout(calibration_layout)
 
@@ -417,17 +423,21 @@ class MainWindow(QMainWindow):
         self.file_label.setText(label)
         '''
         
-
-
-    def apply_overlap(self):
-        
+    def read_manual_overlap_params(self):
         overlap_params = {}
         for key in self.overlap_lineEdit.keys():
             try:
                 overlap_params[key] = float(self.overlap_lineEdit[key].text().strip())
             except ValueError:
                 print("Select values for all boxes!")
-                
+        return overlap_params
+
+
+
+    def apply_overlap_core(self, overlap_params=None):
+        '''
+        Core functionality to apply overlap to data.
+        '''
         
         roi_first = (overlap_params['roi_first_min'], overlap_params['roi_first_max'])
         roi_last = (overlap_params['roi_last_min'], overlap_params['roi_last_max'])
@@ -441,6 +451,11 @@ class MainWindow(QMainWindow):
         self.set_status("Masks applied", "N/A")
         self.on_array_change()
         self.logger.info("Overlap parameters applied!")
+
+    def apply_overlap(self):
+        overlap_params = self.read_manual_overlap_params()
+        self.apply_overlap_core(overlap_params)
+
 
     def open_existing_calibration(self):
         print(self.calibration_combo.currentText())
@@ -461,16 +476,13 @@ class MainWindow(QMainWindow):
             self.logger.warning("No calibration selected.")
             '''
         
-    def open_calibration_editor(self):
+    def open_new_calibration_in_editor(self):
+        self.calibration_editor = CalibrationEditor(calibration = None)
+        self.calibration_editor.show()
 
-        fn = self.calibration_combo.currentText()
-        if fn == "Select calibration":
-            self.logger.error("Choose valid calibration!")
-            return 
+    def edit_calibration_in_editor(self):
 
-        calibration = Calibration(
-            load_calibration(filename=fn)
-        )
+        calibration = self.get_selected_calibration()
 
         self.calibration_editor = CalibrationEditor(
             calibration=calibration
@@ -478,8 +490,38 @@ class MainWindow(QMainWindow):
         
 
         self.calibration_editor.show()
-        self.calibration_editor.raise_()
-        self.calibration_editor.activateWindow()
+
+    def apply_calibration(self):
+        if self.data_current is None:
+            print("No data loaded, nothing to calibrate.")
+            return
+        
+        self.calibration = self.get_selected_calibration()
+
+        overlap_params = self.calibration.bunch_overlap_params
+        self.data_postproc = self.apply_overlap_core(overlap_params=overlap_params)
+        self.calibrate()
+        
+
+    def calibrate(self):
+        
+        self.data_calibrated = self.calibration.convert(self.data_postproc)
+        self.set_status("Calibrated", True)
+        self.on_array_change()
+        self.logger.info("Data calibrated")
+
+
+    def get_selected_calibration(self):
+        name = self.calibration_combo.currentText()
+        if name == "Select calibration":
+            self.logger.error("Choose valid calibration!")
+            return 
+        calibration = Calibration(
+            load_calibration(filename=name)
+        )
+        return calibration
+        
+        
   
                     
 
