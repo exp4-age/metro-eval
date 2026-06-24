@@ -26,6 +26,7 @@ from scipy.optimize import curve_fit
 from scipy.odr import ODR, Model, RealData
 from scipy.stats import norm
 
+import pyqtgraph as pg
 from matplotlib.widgets import RectangleSelector
 from lmfit.models import GaussianModel, ConstantModel
 import tkinter as tk
@@ -39,7 +40,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 CALIBRATION_DIR = SCRIPT_DIR / "calibrations"
 
 
-def save_calibration(calibration_dict):
+def get_calibration_filepath(calibration_dict):
     experiment = calibration_dict["experiment"]
     setting = calibration_dict["setting"]
     author = calibration_dict["author"]
@@ -48,10 +49,14 @@ def save_calibration(calibration_dict):
 
     filename = f"{experiment}_{setting}_{index}_{author}_{version}.json"
 
-    filepath = CALIBRATION_DIR / filename
+    return CALIBRATION_DIR / filename
 
+def save_calibration(calibration_dict):
+    filepath = get_calibration_filepath(calibration_dict)
     with open(filepath, "w") as f:
         json.dump(calibration_dict, f, indent=4)
+    
+    return filepath
 
 
 def load_calibration(experiment=None, setting=None, index=None, author=None, 
@@ -91,15 +96,17 @@ class Calibration:
     def __init__(self, calibration_dict: Dict | None = None):
         
         self.calibration_dict=calibration_dict
-        self.x_values = []
-        self.x_err = []
-        self.y_values = []
-        self.y_err = []
+        self.x_values = np.array([])
+        self.x_err = np.array([])
+        self.y_values = np.array([])
+        self.y_err = np.array([])
         self.comments = ""
         self.method=None
         self.model_func=None
         self.p0=None
-        self.metadata=None
+        self.popt=None
+        self.bunch_overlap_params=None
+        self.metadata=ExperimentMetadata()
 
         if calibration_dict is not None:
             self.load_dict(calibration_dict)
@@ -338,6 +345,131 @@ class Calibration:
         filename = f"{self.metadata.experiment}_{self.metadata.setting}_{self.metadata.index}_{self.metadata.author}_{self.metadata.version}.json"
         return filename
 
+
+def plot_calibration_pg(calibration, plot_widget,
+                        xlabel="Electron time of flight / ns",
+                        ylabel="Electron kinetic energy / eV",
+                        bins=1000,
+                        stds=2):
+    """
+    Plot a calibration object into an existing pyqtgraph PlotWidget.
+    """
+    
+    plot_widget.clear()
+    
+    # Labels
+    plot_widget.setLabel('bottom', xlabel)
+    plot_widget.setLabel('left', ylabel)
+
+    # Grid
+    plot_widget.showGrid(x=True, y=True, alpha=0.3)
+
+
+    if calibration.x_values.size == 0:
+        return
+    
+    
+    # Title
+    plot_widget.setTitle(
+        f"{calibration.metadata.experiment}_"
+        f"{calibration.metadata.setting}"
+    )
+
+    
+    # Calibration points
+    plot_widget.plot(
+        calibration.x_values,
+        calibration.y_values,
+        pen=None,
+        symbol='o',
+        name="Calibration points"
+    )
+
+    # Error bars
+    if calibration.y_err is not None:
+        err = pg.ErrorBarItem(
+            x=calibration.x_values,
+            y=calibration.y_values,
+            height=2 * calibration.y_err,
+            beam=0.0
+        )
+        plot_widget.addItem(err)
+    add_xerrorbars(
+        plot_widget,
+        calibration.x_values,
+        calibration.y_values,
+        calibration.x_err
+    )
+
+    # Fit + confidence interval
+    if calibration.popt is not None:
+        grid = np.linspace(
+            calibration.x_values.min(),
+            calibration.x_values.max(),
+            bins
+        )
+
+        ci = calibration.get_uncertainty(
+            x0=grid,
+            stds=stds
+        )
+
+        # Fit curve
+        plot_widget.plot(
+            grid,
+            ci["y_fit"],
+            pen=pg.mkPen(width=2),
+            name="Calibration curve"
+        )
+
+        # Confidence interval band
+        upper = pg.PlotCurveItem(grid, ci["y_high"])
+        lower = pg.PlotCurveItem(grid, ci["y_low"])
+
+        band = pg.FillBetweenItem(
+            upper,
+            lower,
+            brush=(100, 100, 255, 60)
+        )
+
+        plot_widget.addItem(upper)
+        plot_widget.addItem(lower)
+        plot_widget.addItem(band)
+
+
+
+def add_xerrorbars(plot_widget, x, y, xerr,
+                   pen=None):
+    '''
+    Helper function to draw proper x_err bars to a pg plot
+    '''
+    if pen is None:
+        pen = pg.mkPen(width=1)
+
+    y_range = np.max(y) - np.min(y)
+
+    for xi, yi, xe in zip(x, y, xerr):
+
+        # horizontal line
+        plot_widget.plot(
+            [xi - xe, xi + xe],
+            [yi, yi],
+            pen=pen
+        )
+
+        # left cap
+        plot_widget.plot(
+            [xi - xe, xi - xe],
+            [yi , yi],
+            pen=pen
+        )
+
+        # right cap
+        plot_widget.plot(
+            [xi + xe, xi + xe],
+            [yi, yi],
+            pen=pen
+        )
 
 #######################
 # For tkinter

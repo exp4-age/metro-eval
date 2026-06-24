@@ -13,14 +13,21 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QTableWidget,
     QSplitter,
-    QHeaderView
+    QHeaderView,
+    QHBoxLayout,
+    QFormLayout,
+    QDoubleSpinBox,
+    QCheckBox,
+    QLineEdit
 )
+
+from PySide6.QtCore import Signal
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 
 import pyqtgraph as pg
 from metro_eval.coinc.plot_functions import interactive
-from metro_eval.coinc.calibration_manager import Calibration
+from metro_eval.coinc.calibration_manager import Calibration, plot_calibration_pg
 
 from typing import TYPE_CHECKING
 from numpy.typing import ArrayLike, NDArray
@@ -205,9 +212,7 @@ class CalibrationViewPage(AnalysisPage):
         self.layout_right=QVBoxLayout()
 
         self.plot_widget = pg.PlotWidget()
-        '''
-        self.plot_widget = CalibrationPlotWidget(self.calibration)
-        '''
+
         plot_calibration_pg(self.calibration, self.plot_widget)
         
         self.table = QTableWidget()
@@ -239,117 +244,46 @@ class CalibrationViewPage(AnalysisPage):
         self.main_layout.addWidget(splitter)
 
 
+class ScanAnalysisPage(QWidget):
 
-def plot_calibration_pg(calibration, plot_widget,
-                        xlabel="Electron time of flight / ns",
-                        ylabel="Electron kinetic energy / eV",
-                        bins=1000,
-                        stds=2):
-    """
-    Plot a calibration object into an existing pyqtgraph PlotWidget.
-    """
+    peakFound = Signal(float, float)
 
-    plot_widget.clear()
+    def __init__(self, parent=None):
+        super().__init__(parent)
 
-    # Calibration points
-    plot_widget.plot(
-        calibration.x_values,
-        calibration.y_values,
-        pen=None,
-        symbol='o',
-        name="Calibration points"
-    )
+        layout = QHBoxLayout(self)
 
-    # Error bars
-    if calibration.y_err is not None:
-        err = pg.ErrorBarItem(
-            x=calibration.x_values,
-            y=calibration.y_values,
-            height=2 * calibration.y_err,
-            beam=0.0
-        )
-        plot_widget.addItem(err)
-    add_xerrorbars(
-        plot_widget,
-        calibration.x_values,
-        calibration.y_values,
-        calibration.x_err
-    )
+        #
+        # controls
+        #
+        controls = QFormLayout()
 
-    # Fit + confidence interval
-    if calibration.popt is not None:
-        grid = np.linspace(
-            calibration.x_values.min(),
-            calibration.x_values.max(),
-            bins
-        )
+        self.normalize_cb = QCheckBox()
+        self.normalize_cb.setChecked(True)
 
-        ci = calibration.get_uncertainty(
-            x0=grid,
-            stds=stds
-        )
+        self.offset_spin = QDoubleSpinBox()
+        self.offset_spin.setValue(1.2)
 
-        # Fit curve
-        plot_widget.plot(
-            grid,
-            ci["y_fit"],
-            pen=pg.mkPen(width=2),
-            name="Calibration curve"
-        )
+        self.center_edit = QLineEdit()
+        self.sigma_edit = QLineEdit()
 
-        # Confidence interval band
-        upper = pg.PlotCurveItem(grid, ci["y_high"])
-        lower = pg.PlotCurveItem(grid, ci["y_low"])
+        controls.addRow("Normalize", self.normalize_cb)
+        controls.addRow("Offset", self.offset_spin)
+        controls.addRow("Center", self.center_edit)
+        controls.addRow("Sigma", self.sigma_edit)
 
-        band = pg.FillBetweenItem(
-            upper,
-            lower,
-            brush=(100, 100, 255, 60)
-        )
+        left = QWidget()
+        left.setLayout(controls)
 
-        plot_widget.addItem(upper)
-        plot_widget.addItem(lower)
-        plot_widget.addItem(band)
+        #
+        # plot
+        #
+        self.plot = pg.PlotWidget()
 
-    # Labels
-    plot_widget.setLabel('bottom', xlabel)
-    plot_widget.setLabel('left', ylabel)
+        layout.addWidget(left)
+        layout.addWidget(self.plot, 1)
 
-    # Title
-    plot_widget.setTitle(
-        f"{calibration.metadata.experiment}_"
-        f"{calibration.metadata.setting}"
-    )
+        self.roi = None
 
-    # Grid
-    plot_widget.showGrid(x=True, y=True, alpha=0.3)
+        self.scan_data = None
 
-def add_xerrorbars(plot_widget, x, y, xerr,
-                   pen=None):
-    if pen is None:
-        pen = pg.mkPen(width=1)
-
-    y_range = np.max(y) - np.min(y)
-
-    for xi, yi, xe in zip(x, y, xerr):
-
-        # horizontal line
-        plot_widget.plot(
-            [xi - xe, xi + xe],
-            [yi, yi],
-            pen=pen
-        )
-
-        # left cap
-        plot_widget.plot(
-            [xi - xe, xi - xe],
-            [yi , yi],
-            pen=pen
-        )
-
-        # right cap
-        plot_widget.plot(
-            [xi + xe, xi + xe],
-            [yi, yi],
-            pen=pen
-        )

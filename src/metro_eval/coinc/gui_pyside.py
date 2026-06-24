@@ -35,17 +35,24 @@ from PySide6.QtWidgets import (
 
 QLocale.setDefault(QLocale(QLocale.C))  # "C" locale = dot decimal
 
+import pyqtgraph as pg
 import numpy as np
 import logging
 
 from metro_eval.coinc.file_handler import get_keys, read_coinc
 from metro_eval.coinc.plot_functions import hist_1D
-from metro_eval.coinc.analysis_pages import CoincmapPage, SignalPage, HistogramPage, CalibrationViewPage
+from metro_eval.coinc.analysis_pages import CoincmapPage, SignalPage, HistogramPage, CalibrationViewPage, ScanAnalysisPage
 from metro_eval.coinc.postprocessing import overlap
 from metro_eval.coinc.mask_functions import mask_by_column
 from metro_eval.coinc.log_widget import setup_gui_logging, LogWidget
-from metro_eval.coinc.calibration_manager import list_calibrations, load_calibration, Calibration, save_calibration
+from metro_eval.coinc.calibration_manager import (list_calibrations, 
+                                                  load_calibration, 
+                                                  Calibration, 
+                                                  save_calibration,
+                                                  get_calibration_filepath, 
+                                                  plot_calibration_pg)
 
+from metro_eval.coinc.models import MODELS
 
 
 class MainWindow(QMainWindow):
@@ -53,7 +60,7 @@ class MainWindow(QMainWindow):
         super().__init__()
 
         self.setWindowTitle("Analysis GUI")
-        self.resize(1400, 750)
+        self.resize(1400, 800)
 
 
         # =========================
@@ -142,11 +149,11 @@ class MainWindow(QMainWindow):
         self.plot_workspace = PlotWorkspace()
 
 
-        test_btn_1d = QPushButton("Create Plot")
+        test_btn_1d = QPushButton("Create random 1D Plot")
         test_btn_1d.clicked.connect(
             self.plot_workspace.create_random_signal
         )
-        test_btn_2d = QPushButton("Create 2D Plot")
+        test_btn_2d = QPushButton("Create random 2D Plot")
         test_btn_2d.clicked.connect(
             self.plot_workspace.add_random_map
         )
@@ -575,13 +582,13 @@ class MainWindow(QMainWindow):
         self.set_status("Data shape (raw)", self.data_raw.shape)
         self.set_status("Data shape (current)", self.data_current.shape)
         
-        '''
-        #TODO
-        Work in progress: we need to add the update for the status labels here, but we first need to 
-        decide how to store the information about the current state of the data (raw, postprocessed, calibrated, ...) 
-        in a way that is easy to check in this function and in the other functions that need to know about it 
-        (e.g. the plot functions, which might want to change their behavior based on the state of the data)
-        '''
+        for row in range(self.plot_widget.table.rowCount()):
+            combo = self.plot_widget.table.cellWidget(row, 2,)
+            combo.clear()
+            combo.addItems([f"{i+1}" for i in range(self.data_current.shape[1])])
+
+            
+
 
     def set_status(self, key, value):
         '''
@@ -708,38 +715,63 @@ class CalibrationEditor(QMainWindow):
         
 
         self.setWindowTitle("Calibration Editor")
-        #self.resize(1200, 600)
+        self.resize(1200, 750)
         
+        self.build_ui()
         
+    def build_ui(self):
+        '''
+        Build the main UI for the CalibrationEditor
         
         splitter = QSplitter()
+        
 
 
         self.data_info_panel = self._add_data_info_panel()
         self.data_point_panel = self._add_points_panel()
+        self.cal_plot_panel = self._add_cal_plot_panel()
         splitter.addWidget(self.data_info_panel)
         splitter.addWidget(self.data_point_panel)
-        #splitter.addWidget(self._add_build_plot_panel())
-
+        splitter.addWidget(self.cal_plot_panel)
         self.setCentralWidget(splitter)
         '''
+        
         central = QWidget()
         self.setCentralWidget(central)
 
-        self.main_layout = QHBoxLayout(central)
+        main_layout = QHBoxLayout(central)
+        
+        layout_left = QVBoxLayout()
 
-        self.panel1 = QVBoxLayout()
-
-
+        layout_left_upper = QHBoxLayout()
+        
         self.data_info_panel = self._add_data_info_panel()
-        self.panel1.addWidget(self.data_info_panel)
+        self.data_point_panel = self._add_points_panel()
 
-        self.main_layout.addLayout(self.panel1)
-        '''
+        layout_left_upper.addWidget(self.data_info_panel)
+        layout_left_upper.addWidget(self.data_point_panel)
+
+        layout_left_lower = self._add_data_exploration()
+        
+
+        layout_left.addLayout(layout_left_upper, 1)
+        layout_left.addLayout(layout_left_lower, 1)
+
+        self.cal_plot_panel = self._add_cal_plot_panel()
+
+        main_layout.addLayout(layout_left)
+        main_layout.addWidget(self.cal_plot_panel)
+        central.setLayout(main_layout)
+        
         
 
         
     def _add_data_info_panel(self):
+        '''
+        Builds group box containing lineedits to enter the
+        general information on the calibration as well as comments 
+        and a save button
+        '''
         info_group = QGroupBox("General information")
         self.fields = {}
 
@@ -771,48 +803,16 @@ class CalibrationEditor(QMainWindow):
         info_group.setLayout(info_layout)
         return info_group
 
-    def save(self):
-        self.populate_calibration_from_edits()
-        save_calibration(self.calibration.calibration_dict)
-
-    def populate_calibration_from_edits(self):
-        info = {}
-        
-        for field in self.fields.keys():
-            if field == "Comments":
-                info[field] = self.fields[field].toPlainText()
-            else:
-                info[field] = self.fields[field].text()
-
-        info["calibration_points"] = self.get_calibration_points()
-        self.calibration = Calibration(info)
-        
-
-
-    def get_calibration_points(self):
-
-        points = []
-
-        for row in range(self.points_table.rowCount()):
-
-            point = []
-
-            for col in range(4):
-
-                item = self.points_table.item(row, col)
-
-                if item is None:
-                    value = None
-                else:
-                    value = float(item.text())
-
-                point.append(value)
-
-            points.append(point)
-
-        return points
 
     def _add_points_panel(self):
+        '''
+        Returns a QGroupBox() object, which contains a table displaying the calibration points 
+        and QLineEdit Widgets + a  Button to enter new calibraiton points to the table.
+
+        Add: Line Removal
+        Add: On changing elements in the table, the Calibraiton object is reinitialized with the 
+        current entries.
+        '''
         points_panel = QGroupBox("Calibration points")
 
         points_layout = QVBoxLayout()
@@ -831,12 +831,215 @@ class CalibrationEditor(QMainWindow):
 
         self.populate_points_table()
 
+        add_points_layout = QHBoxLayout()
+
+        self.manual_points_entries = {}
+        self.manual_points_entries["x"] = QLineEdit()
+        self.manual_points_entries["x"].setPlaceholderText("x")
+        self.manual_points_entries["xerr"] = QLineEdit()
+        self.manual_points_entries["xerr"].setPlaceholderText("xerr")
+        self.manual_points_entries["y"] = QLineEdit()
+        self.manual_points_entries["y"].setPlaceholderText("y")
+        self.manual_points_entries["yerr"] = QLineEdit()
+        self.manual_points_entries["yerr"].setPlaceholderText("yerr")
+        
+        
+        self.add_row_btn = QPushButton("Add point")
+        self.add_row_btn.clicked.connect(self._add_points_row)
+
+        for widget in self.manual_points_entries.values():
+            add_points_layout.addWidget(widget)
+        add_points_layout.addWidget(self.add_row_btn)
+
+
+
         points_layout.addWidget(self.points_table)
+        points_layout.addLayout(add_points_layout)
         
         points_panel.setLayout(points_layout)
         return points_panel
 
+    def _add_data_exploration(self):
+
+        layout = QHBoxLayout()
+        
+        self.plot_tab_widget = PlotWorkspace()
+        self.new_scan_tab_btn = QPushButton("New Scan Tab")
+        self.new_scan_tab_btn.clicked.connect(self.plot_tab_widget.add_scan_analysis)
+
+
+        layout.addWidget(self.new_scan_tab_btn)
+        layout.addWidget(self.plot_tab_widget, stretch=2)
+
+        return layout
+
+        
+
+
+    def _add_cal_plot_panel(self):
+        
+        cal_plot_panel = QGroupBox()
+        cal_plot_layout = QVBoxLayout()
+
+        self.plot_widget = pg.PlotWidget()
+        plot_calibration_pg(self.calibration, self.plot_widget)
+
+
+        fit_settings_layout = QHBoxLayout()
+        self.method_combo = QComboBox()
+        self.method_combo.addItems(["odr", "curve_fit"])
+        if self.calibration.method is not None:
+            self.method_combo.setCurrentText(self.calibration.method)
+
+
+        self.models_combo = QComboBox()
+        self.models_combo.addItems([model for model in MODELS.keys()])
+        if self.calibration.model_func is not None:
+            self.method_combo.setCurrentText(self.calibration.calibration_dict["model_type"])
+        
+        init_params_layout = QHBoxLayout()
+        
+        number_of_init_parameters = 6
+
+
+        self.init_params_edits = {}
+        for i in range(number_of_init_parameters):
+            edit = QLineEdit()
+            self.init_params_edits[f"a{i}"] = edit
+            init_params_layout.addWidget(edit)
+
+        if self.calibration.p0 is not None:
+            for i in range(len(self.calibration.p0)):
+                self.init_params_edits[f"a{i}"].setText(str(self.calibration.p0[i]))
+        
+        
+        fitted_params_layout = QHBoxLayout()
+
+        self.fitted_params_edits = {}
+        for i in range(number_of_init_parameters):
+            edit = QLineEdit()
+            edit.setReadOnly(True)
+            self.fitted_params_edits[f"a{i}"] = edit
+            fitted_params_layout.addWidget(edit)
+
+        if self.calibration.popt is not None:
+            for i in range(len(self.calibration.p0)):
+                self.fitted_params_edits[f"a{i}"].setText(f"{self.calibration.popt[i]:.2e}")
+        
+
+
+        fit_settings_layout.addWidget(self.method_combo)
+        fit_settings_layout.addWidget(self.models_combo)
+
+        cal_plot_layout.addLayout(fit_settings_layout)
+        cal_plot_layout.addLayout(init_params_layout)
+        cal_plot_layout.addLayout(fitted_params_layout)
+        cal_plot_layout.addWidget(self.plot_widget)
+
+        cal_plot_panel.setLayout(cal_plot_layout)
+        return cal_plot_panel
+
+
+    def save(self):
+        '''
+        Populates the information in the lineedits etc to 
+        calibration and saves the calibration to a json file
+        '''
+
+        self.populate_calibration_from_edits()
+
+        filepath=get_calibration_filepath(self.calibration.calibration_dict)
+
+        if filepath.exists():
+            reply = QMessageBox.question(
+                self,
+                "Calibration exists",
+                f"{filepath.name} already exists.\n\n"
+                "Do you want to overwrite it?",
+                QMessageBox.Yes | QMessageBox.No,
+            )
+
+            if reply == QMessageBox.No:
+                return
+
+        save_calibration(self.calibration.calibration_dict)
+
+    def populate_calibration_from_edits(self):
+        '''
+        Reads the entries in the QLineEdit widgets (and later also other important widgets) to a dicitonary. 
+        Then, a Calibration object is initialized with this dictionary. This is set to be the new self.calibration property. 
+        '''
+        info = {}
+        
+        for field in self.fields.keys():
+            if field == "Comments":
+                info[field] = self.fields[field].toPlainText()
+            else:
+                info[field] = self.fields[field].text()
+
+        info["calibration_points"] = self.get_calibration_points()
+        info["method"] = self.method_combo.currentText()
+        info["model_type"] = self.models_combo.currentText()
+
+        info["initial_parameters"] = {"p0": self.get_initial_fit_parameters_from_edits()}
+        if self.calibration.popt is not None:
+            fit_results = {
+                "popt" : self.calibration.popt.tolist(),
+                "pcov" : self.calibration.pcov.tolist(),
+                "perr" : self.calibration.perr.tolist(),
+            }
+        else:
+            fit_results = {
+                "popt" : [],
+                "pcov" : [],
+                "perr" : []
+            }
+        info["fitted_parameters"] = fit_results
+        
+        self.calibration = Calibration(info)
+
+    def get_initial_fit_parameters_from_edits(self):
+        parameter_list = []
+        for i in range(len(self.init_params_edits)):
+            if self.init_params_edits[f"a{i}"].text() == "":
+                continue
+            else:
+                parameter_list.append(float(self.init_params_edits[f"a{i}"].text()))
+        return parameter_list
+    
+
+    def update_calibration_plot(self):
+        self.populate_calibration_from_edits()
+        plot_calibration_pg(self.calibration, self.plot_widget)
+        
+
+
+    def get_calibration_points(self):
+        '''
+        Reads the calibration points from the points_table and returns a list in the format:
+        [[x, xerr, y, yerr],[...],...]
+        This is the format used for initializing a Calibration object from a dicitonary.
+        '''
+
+        points = []
+
+        for row in range(self.points_table.rowCount()):
+
+            point = []
+
+            for col in range(4):
+                widget = self.points_table.cellWidget(row, col)
+                point.append(float(widget.text()) if widget and widget.text() else None)
+
+            points.append(point)
+
+        return points
+
     def populate_points_table(self):
+        '''
+        Use the information stored in self.calibration.x_values (x_err, y_values, y_err)
+        to populate the points_table.
+        '''
 
         n = len(self.calibration.x_values)
 
@@ -844,26 +1047,71 @@ class CalibrationEditor(QMainWindow):
         
 
         for row in range(n):
-
-            self.points_table.setItem(
+            
+            line_edit = QLineEdit()
+            line_edit.setText(str(self.calibration.x_values[row]))
+            line_edit.editingFinished.connect(self.update_calibration_plot)
+            self.points_table.setCellWidget(
                 row, 0,
-                QTableWidgetItem(str(self.calibration.x_values[row]))
-            )
+                line_edit)
 
-            self.points_table.setItem(
+            
+            line_edit = QLineEdit()
+            line_edit.setText(str(self.calibration.x_err[row]))
+            line_edit.editingFinished.connect(self.update_calibration_plot)
+            self.points_table.setCellWidget(
                 row, 1,
-                QTableWidgetItem(str(self.calibration.x_err[row]))
-            )
+                line_edit)
 
-            self.points_table.setItem(
+            
+            line_edit = QLineEdit()
+            line_edit.setText(str(self.calibration.y_values[row]))
+            line_edit.editingFinished.connect(self.update_calibration_plot)
+            self.points_table.setCellWidget(
                 row, 2,
-                QTableWidgetItem(str(self.calibration.y_values[row]))
-            )
-
-            self.points_table.setItem(
+                line_edit)
+            
+            line_edit = QLineEdit()
+            line_edit.setText(str(self.calibration.y_err[row]))
+            line_edit.editingFinished.connect(self.update_calibration_plot)
+            self.points_table.setCellWidget(
                 row, 3,
-                QTableWidgetItem(str(self.calibration.y_err[row]))
-            )
+                line_edit)
+        
+
+    def _add_points_row(self):
+        '''
+        Takes the values entered in the self.maual_point_entries QLineEdits 
+        and appends them to self.calibration.x_values etc.
+        Then, the points_table is populated from self.calibration and the 
+        calibration_point plot is replotted.
+        '''
+
+        for key, entry in self.manual_points_entries.items():
+            print(entry.text())
+            if entry.text() == None:
+                print(f"Entry {key} is None")
+                return
+
+        # Update calibration            
+        entries = self.manual_points_entries
+
+        self.calibration.x_values = np.append(self.calibration.x_values, float(entries["x"].text().strip()))
+        self.calibration.x_err = np.append(self.calibration.x_err, float(entries["xerr"].text().strip()))
+        self.calibration.y_values = np.append(self.calibration.y_values, float(entries["y"].text().strip()))
+        self.calibration.y_err = np.append(self.calibration.y_err, float(entries["yerr"].text().strip()))
+
+        # Repopulate points_table
+        self.populate_points_table()
+
+        # Empty the QLineEdits
+        for entry in self.manual_points_entries.values():
+            entry.clear()
+        
+        plot_calibration_pg(self.calibration, self.plot_widget)
+        
+
+            
     
 
 
@@ -1353,6 +1601,10 @@ class PlotWorkspace(QWidget):
         
     def add_calibration_view(self, calib:Calibration):
         page = CalibrationViewPage(calib)
+        self.add_page(page)
+
+    def add_scan_analysis(self):
+        page = ScanAnalysisPage()
         self.add_page(page)
 
     def add_random_map(self):
