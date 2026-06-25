@@ -21,10 +21,12 @@
     },
 
     "fitted_parameters": {
-        "p0" : [1,1e2,1e4,1e6]
+        "popt" : [],
+        "pcov" : [],
+        "perr" : []
     },
 
-    "Comments": "Descriptive comments",
+    "Comments": "",
 
     "calibration_points" : [
         [ 697.0 , 6.0 , 6.5 , 0.5 ] ,
