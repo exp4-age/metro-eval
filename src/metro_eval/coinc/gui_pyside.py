@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QRadioButton,
     QDoubleSpinBox,
     QSpinBox,
+    QTableWidgetItem, 
 )
 
 QLocale.setDefault(QLocale(QLocale.C))  # "C" locale = dot as decimal point
@@ -34,8 +35,9 @@ QLocale.setDefault(QLocale(QLocale.C))  # "C" locale = dot as decimal point
 import pyqtgraph as pg
 import numpy as np
 import logging
+from dataclasses import dataclass
 
-from metro_eval.coinc.file_handler import get_keys, read_coinc
+from metro_eval.coinc.file_handler import get_keys, read_coinc, ScanData, ScanSpectrum, read_scan
 from metro_eval.coinc.plot_functions import hist_1D
 from metro_eval.coinc.analysis_pages import CoincmapPage, SignalPage, HistogramPage, CalibrationViewPage, ScanAnalysisPage
 from metro_eval.coinc.postprocessing import overlap
@@ -230,13 +232,13 @@ class MainWindow(QMainWindow):
         choice_radio_layout = QHBoxLayout()
 
         self.radio_off = QRadioButton("No Postprocessing")
-        self.radio_off.setChecked(True)
         self.radio_off.toggled.connect(self.enable_postprocessing)
         
         self.radio_manual = QRadioButton("Manual")
         self.radio_manual.toggled.connect(self.enable_postprocessing)
 
         self.radio_automatic = QRadioButton("automatic")
+        self.radio_automatic.setChecked(True)
         self.radio_automatic.toggled.connect(self.enable_postprocessing)
 
         choice_radio_layout.addWidget(self.radio_off)
@@ -862,7 +864,7 @@ class CalibrationEditor(QMainWindow):
         self.calibration = calibration or Calibration()
 
         self.setWindowTitle("Calibration Editor")
-        self.resize(1200, 750)
+        self.resize(1300, 750)
         
         self.build_ui()
         
@@ -881,9 +883,12 @@ class CalibrationEditor(QMainWindow):
         layout_left_upper = QHBoxLayout()
         
         self.data_info_panel = self._add_data_info_panel()
+        self.data_info_panel.setMaximumWidth(270)
+        self.bunch_overlap_panel = self._add_bunch_overlap_panel()
         self.data_point_panel = self._add_points_panel()
 
         layout_left_upper.addWidget(self.data_info_panel)
+        layout_left_upper.addWidget(self.bunch_overlap_panel)
         layout_left_upper.addWidget(self.data_point_panel)
 
         layout_left_lower = self._add_data_exploration()
@@ -894,8 +899,8 @@ class CalibrationEditor(QMainWindow):
 
         self.cal_plot_panel = self._add_cal_plot_panel()
 
-        main_layout.addLayout(layout_left)
-        main_layout.addWidget(self.cal_plot_panel)
+        main_layout.addLayout(layout_left, 3)
+        main_layout.addWidget(self.cal_plot_panel, 2)
         central.setLayout(main_layout)
         
         
@@ -938,6 +943,51 @@ class CalibrationEditor(QMainWindow):
         info_group.setLayout(info_layout)
         return info_group
 
+    def _add_bunch_overlap_panel(self) -> QGroupBox:
+        bo_box = QGroupBox("Bunch overlap")
+
+        bo_layout = QGridLayout()
+
+        self.bunch_overlap_edits = {}
+        
+        self.bunch_overlap_edits["reptime"] = QLineEdit()
+        self.bunch_overlap_edits['reptime'].setPlaceholderText("repetition time")
+
+        self.bunch_overlap_edits['roi_first_min'] = QLineEdit()
+        self.bunch_overlap_edits['roi_first_min'].setPlaceholderText("ROI1_1")
+        self.bunch_overlap_edits['roi_first_max'] = QLineEdit()
+        self.bunch_overlap_edits['roi_first_max'].setPlaceholderText("ROI1_2")
+
+        self.bunch_overlap_edits['roi_last_min'] = QLineEdit()
+        self.bunch_overlap_edits['roi_last_min'].setPlaceholderText("ROI2_1")
+        self.bunch_overlap_edits['roi_last_max'] = QLineEdit()
+        self.bunch_overlap_edits['roi_last_max'].setPlaceholderText("ROI2_2")
+
+        bo_layout.addWidget(self.bunch_overlap_edits['reptime'], 0,0,1,2)
+        bo_layout.addWidget(self.bunch_overlap_edits['roi_first_min'], 1,0)
+        bo_layout.addWidget(self.bunch_overlap_edits['roi_first_max'], 1,1)
+        bo_layout.addWidget(self.bunch_overlap_edits['roi_last_min'], 2,0)
+        bo_layout.addWidget(self.bunch_overlap_edits['roi_last_max'], 2,1)
+
+        # INFO table for repetition times at different facilities:
+        reptime_group = QGroupBox("Repetition Times (ns)")
+
+        reptime_form = QFormLayout(reptime_group)
+
+        reptime_form.addRow("MAX IV", QLabel("318.76"))
+        reptime_form.addRow("PETRA 3 (40-bunch)", QLabel("(192)"))
+        reptime_form.addRow("BESSY II", QLabel("(790)"))
+        reptime_form.addRow("Soleil", QLabel("(1176)"))
+
+
+        bo_layout.addWidget(reptime_group, 3,0,1,2)
+
+
+
+        bo_box.setLayout(bo_layout)
+
+        return bo_box
+
 
     def _add_points_panel(self) -> QGroupBox:
         '''
@@ -963,6 +1013,11 @@ class CalibrationEditor(QMainWindow):
                 "ΔE"
             ]
         )
+        col_width=60
+        self.points_table.setColumnWidth(0, col_width)
+        self.points_table.setColumnWidth(1, col_width)
+        self.points_table.setColumnWidth(2, col_width)
+        self.points_table.setColumnWidth(3, col_width)
         self.populate_points_table()
 
         # Add a new point manually
@@ -983,10 +1038,11 @@ class CalibrationEditor(QMainWindow):
         self.manual_points_entries["yerr"].setPlaceholderText("yerr")
         
         self.add_row_btn = QPushButton("Add point")
-        self.add_row_btn.clicked.connect(self._add_points_row)
+        self.add_row_btn.clicked.connect(self.points_from_manual_entries)
 
         # Layout
         for widget in self.manual_points_entries.values():
+            widget.setMaximumWidth(60)
             add_points_layout.addWidget(widget)
         add_points_layout.addWidget(self.add_row_btn)
 
@@ -1002,19 +1058,31 @@ class CalibrationEditor(QMainWindow):
         layout = QHBoxLayout()
         
         self.plot_tab_widget = PlotWorkspace()
-        self.new_scan_tab_btn = QPushButton("New Scan Tab")
-        self.new_scan_tab_btn.clicked.connect(self.plot_tab_widget.add_scan_analysis)
 
+        layout_left = QVBoxLayout()
 
-        layout.addWidget(self.new_scan_tab_btn)
+        # Just for testing-----
+        self.new_scan_tab_btn = QPushButton("Scan Dummy")
+        self.new_scan_tab_btn.clicked.connect(self.add_dummy_scan)
+        #-------------------------
+
+        self.new_scan_btn = QPushButton("Browse scan")
+        self.new_scan_btn.clicked.connect(self.browse_scans)
+
+        layout_left.addWidget(self.new_scan_tab_btn)
+        layout_left.addWidget(self.new_scan_btn)
+        layout_left.addStretch()
+
+        layout.addLayout(layout_left)
         layout.addWidget(self.plot_tab_widget, stretch=2)
+
 
         return layout
 
 
     def _add_cal_plot_panel(self) -> QGroupBox:
         
-        cal_plot_panel = QGroupBox()
+        cal_plot_panel = QGroupBox("Calibration function")
         cal_plot_layout = QVBoxLayout()
 
         self.plot_widget = pg.PlotWidget()
@@ -1149,6 +1217,10 @@ class CalibrationEditor(QMainWindow):
         self.populate_calibration_from_edits()
         plot_calibration_pg(self.calibration, self.plot_widget)
         
+        if self.calibration.popt is not None:
+            for i in range(len(self.calibration.p0)):
+                self.fitted_params_edits[f"a{i}"].setText(f"{self.calibration.popt[i]:.2e}")
+        
 
 
     def get_calibration_points(self) -> list:
@@ -1215,23 +1287,36 @@ class CalibrationEditor(QMainWindow):
                 row, 3,
                 line_edit)
         
-
-    def _add_points_row(self) -> None:
+    def points_from_manual_entries(self) -> None:
         '''
         Takes the values entered in the self.maual_point_entries QLineEdits 
-        and appends them to self.calibration.x_values etc.
-        Then, the points_table is populated from self.calibration and the 
-        calibration_point plot is replotted.
+        and forwards them, so that they are added to the calibration
         '''
-
+        
         for key, entry in self.manual_points_entries.items():
             print(entry.text())
             if entry.text() == None:
                 print(f"Entry {key} is None")
                 return
+        
+        self.add_points_row(self.manual_points_entries)
+    
 
-        # Update calibration            
-        entries = self.manual_points_entries
+
+    def add_points_row(self, entries: dict) -> None:
+        '''
+        Takes entries with the format:
+        entries = {
+            "x" : string,
+            "xerr" : string,
+            "y" : string,
+            "yerr" : string,
+        }
+        and appends them to self.calibration.x_values etc.
+        Then, the points_table is populated from self.calibration and the 
+        calibration_point plot is replotted.
+        '''
+
 
         self.calibration.x_values = np.append(self.calibration.x_values, float(entries["x"].text().strip()))
         self.calibration.x_err = np.append(self.calibration.x_err, float(entries["xerr"].text().strip()))
@@ -1247,6 +1332,67 @@ class CalibrationEditor(QMainWindow):
         
         plot_calibration_pg(self.calibration, self.plot_widget)
         
+    def browse_scans(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select file",
+            "",
+            "All Files (*.*)"
+        )
+
+        filename= os.path.basename(file_path)
+
+        # Enable choice later
+        coinc_key = ["E"]
+        col_idx = 0
+        
+        scan = read_scan(file_path=file_path, coincKeys=coinc_key)
+
+        for spec in scan.spectra:
+            data = spec.data_dict[coinc_key[0]]
+            h = 0.5  # chosen bin width
+            edges = np.arange(data.min(), data.max() + h, h)
+
+            counts, edges = np.histogram(data, bins=edges)
+            spec.x = edges[:-1]
+            spec.y = counts
+        
+        page = self.plot_tab_widget.add_scan_analysis(scan)
+        page.point_submitted.connect(self.handle_point_submission_request)
+    
+    def add_dummy_scan(self):
+
+        spectra = []
+        for scan in np.linspace(0,5,10):
+
+            x = np.linspace(0,100,1000)
+            y = (np.exp(-(x - (50 - scan*2))**2/(2*3**2))+0.05*np.random.rand(len(x)))
+
+            spectra.append(ScanSpectrum(scan,x=x,y=y))
+
+        scan_data = ScanData(spectra)
+
+        page = self.plot_tab_widget.add_scan_analysis(scan_data)
+        page.point_submitted.connect(self.handle_point_submission_request)
+    
+    def handle_point_submission_request(self, request):
+        '''
+        Reads the emitted values and forwards them, so that they are added to the calibration
+        '''
+        
+        for key, entry in request.items():
+            print(entry.text())
+            if entry.text() == None:
+                print(f"Entry {key} is None")
+                return
+        
+        self.add_points_row(request)
+    
+
+
+
+        
+
 
             
     
@@ -1740,9 +1886,15 @@ class PlotWorkspace(QWidget):
         page = CalibrationViewPage(calib)
         self.add_page(page)
 
-    def add_scan_analysis(self):
+    def add_scan_analysis(self, 
+                          scan_data
+                          ):
+
         page = ScanAnalysisPage()
+        page.set_scan_data(scan_data)
         self.add_page(page)
+        return page
+        
 
     def add_random_map(self):
         data = np.random.rand(10000, 2)
@@ -1754,8 +1906,6 @@ class PlotWorkspace(QWidget):
         y = np.random.randn(1000).cumsum()
 
         self.add_signal_plot(x, y)
-
-
 
 # ==========================================
 # RUN APPLICATION
