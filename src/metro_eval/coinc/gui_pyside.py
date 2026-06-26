@@ -1,6 +1,7 @@
 import os
 import sys
 
+from PySide6.QtGui import QIcon
 from PySide6.QtCore import Signal, QLocale
 from PySide6.QtWidgets import (
     QApplication,
@@ -963,6 +964,8 @@ class CalibrationEditor(QMainWindow):
         self.bunch_overlap_edits['roi_last_max'] = QLineEdit()
         self.bunch_overlap_edits['roi_last_max'].setPlaceholderText("ROI2_2")
 
+        self.populate_bunch_overlap_param_edits_from_calibration()
+
         bo_layout.addWidget(self.bunch_overlap_edits['reptime'], 0,0,1,2)
         bo_layout.addWidget(self.bunch_overlap_edits['roi_first_min'], 1,0)
         bo_layout.addWidget(self.bunch_overlap_edits['roi_first_max'], 1,1)
@@ -1036,15 +1039,21 @@ class CalibrationEditor(QMainWindow):
         
         self.manual_points_entries["yerr"] = QLineEdit()
         self.manual_points_entries["yerr"].setPlaceholderText("yerr")
-        
-        self.add_row_btn = QPushButton("Add point")
+
+        self.add_row_btn = QPushButton()
+        self.add_row_btn.setIcon(QIcon.fromTheme(QIcon.ThemeIcon.ListAdd))
         self.add_row_btn.clicked.connect(self.points_from_manual_entries)
+
+        self.remove_row_btn = QPushButton()
+        self.remove_row_btn.setIcon(QIcon.fromTheme(QIcon.ThemeIcon.ListRemove))
+        self.remove_row_btn.clicked.connect(self.remove_points_row)
 
         # Layout
         for widget in self.manual_points_entries.values():
             widget.setMaximumWidth(60)
             add_points_layout.addWidget(widget)
         add_points_layout.addWidget(self.add_row_btn)
+        add_points_layout.addWidget(self.remove_row_btn)
 
         points_layout.addWidget(self.points_table)
         points_layout.addLayout(add_points_layout)
@@ -1093,11 +1102,13 @@ class CalibrationEditor(QMainWindow):
 
         self.method_combo = QComboBox()
         self.method_combo.addItems(["odr", "curve_fit"])
+        self.method_combo.currentTextChanged.connect(self.update_calibration_plot)
         if self.calibration.method is not None:
             self.method_combo.setCurrentText(self.calibration.method)
 
         self.models_combo = QComboBox()
         self.models_combo.addItems([model for model in MODELS.keys()])
+        self.models_combo.currentTextChanged.connect(self.update_calibration_plot)
         if self.calibration.model_func is not None:
             self.method_combo.setCurrentText(self.calibration.calibration_dict["model_type"])
         
@@ -1109,6 +1120,7 @@ class CalibrationEditor(QMainWindow):
         self.init_params_edits = {}
         for i in range(number_of_init_parameters):
             edit = QLineEdit()
+            edit.editingFinished.connect(self.update_calibration_plot)
             self.init_params_edits[f"a{i}"] = edit
             init_params_layout.addWidget(edit)
 
@@ -1182,7 +1194,6 @@ class CalibrationEditor(QMainWindow):
             else:
                 info[field] = self.fields[field].text()
 
-        info["calibration_points"] = self.get_calibration_points()
         info["method"] = self.method_combo.currentText()
         info["model_type"] = self.models_combo.currentText()
 
@@ -1200,7 +1211,8 @@ class CalibrationEditor(QMainWindow):
                 "perr" : []
             }
         info["fitted_parameters"] = fit_results
-        
+        info["bunch_overlap"] = self.get_bunch_overlap_params_from_edits()
+        info["calibration_points"] = self.get_calibration_points()        
         self.calibration = Calibration(info)
 
     def get_initial_fit_parameters_from_edits(self) -> list:
@@ -1211,7 +1223,36 @@ class CalibrationEditor(QMainWindow):
             else:
                 parameter_list.append(float(self.init_params_edits[f"a{i}"].text()))
         return parameter_list
-    
+
+    def get_bunch_overlap_params_from_edits(self)-> dict:
+        params = {}
+
+        params["repetition_time"] = float(self.bunch_overlap_edits["reptime"].text())
+        params["ROI_first"] = [float(self.bunch_overlap_edits["roi_first_min"].text()),
+                               float(self.bunch_overlap_edits["roi_first_max"].text())]
+        params["ROI_last"] = [float(self.bunch_overlap_edits["roi_last_min"].text()),
+                               float(self.bunch_overlap_edits["roi_last_max"].text())]
+        #    end = float(start.text()) if start.text() else None
+            
+        return params
+        
+    def populate_bunch_overlap_param_edits_from_calibration(self):
+        
+        params = self.calibration.bunch_overlap_params
+        self.populate_bunch_overlap_parameters_from_dict(params)
+
+
+    def populate_bunch_overlap_parameters_from_dict(self, params: dict):
+        assignments = [(self.bunch_overlap_edits["reptime"], params["repetition_time"]),
+                       (self.bunch_overlap_edits["roi_first_min"], params["ROI_first"][0]),
+                       (self.bunch_overlap_edits["roi_first_max"], params["ROI_first"][1]),
+                       (self.bunch_overlap_edits["roi_last_min"], params["ROI_last"][0]),
+                       (self.bunch_overlap_edits["roi_last_max"], params["ROI_last"][1]),
+                       ]
+
+        for end, start in assignments:
+            end.setText(str(start)) if start != None else None
+
 
     def update_calibration_plot(self) -> None:
         self.populate_calibration_from_edits()
@@ -1329,9 +1370,25 @@ class CalibrationEditor(QMainWindow):
         # Empty the QLineEdits
         for entry in self.manual_points_entries.values():
             entry.clear()
+        self.update_calibration_plot()
         
-        plot_calibration_pg(self.calibration, self.plot_widget)
+    def remove_points_row(self)->None:
+        '''
+        Remove the rows, which are currently selected
+        '''
         
+        rows = sorted(
+            {idx.row() for idx in self.points_table.selectedIndexes()},
+            reverse=True,
+        )
+
+        for row in rows:
+            self.points_table.removeRow(row)
+        
+        self.update_calibration_plot()
+
+
+
     def browse_scans(self):
         file_path, _ = QFileDialog.getOpenFileName(
             self,
