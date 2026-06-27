@@ -42,6 +42,10 @@ def read_coinc(file_path, key):
         if key in base_group:
             data = base_group[key][()]
             data = np.asarray(data) * 0.025
+            # Reshape dimensions of 1D arrays
+            if data.ndim == 1:
+                data = data.reshape(-1, 1)
+
         else:
             print(f"Warning: {key} not in {file_path}")
             return 

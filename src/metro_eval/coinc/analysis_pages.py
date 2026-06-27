@@ -487,3 +487,34 @@ class ScanAnalysisPage(QWidget):
             f"{sigma:.2f}"
         )
 
+
+class CoincExplorerPage(AnalysisPage):
+    '''
+    It is intended that you can easily select a coincidence type and
+    corresponding columns and quickly explore different coincidence sets and column combinations.
+    '''
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        self.build_ui()
+
+    def build_ui(self):
+        
+        main_layout = QHBoxLayout(self)
+
+        control_layout = self._add_control_panel()
+        plot_layout = self._add_plot_panel()
+
+        
+
+    def _add_control_panel(self):
+        
+        layout = QVBoxLayout()
+
+        return layout
+
+    def _add_plot_panel(self):
+        pass
+
+

@@ -772,7 +772,7 @@ class MainWindow(QMainWindow):
 
 
 
-    def apply_overlap_core(self, overlap_params=None):
+    def apply_overlap_core(self, overlap_params):
         '''
         Core functionality to apply overlap to data.
         '''
@@ -805,7 +805,8 @@ class MainWindow(QMainWindow):
         Applies the calibration function from self.calibration to 
         self.data_postproc and sets data_calibrated and data_current
         '''
-        
+        print(self.calibration.popt)
+        print(self.data_postproc)
         self.data_calibrated = self.calibration.convert(self.data_postproc)
         self.data_current = self.data_calibrated
 
@@ -1464,6 +1465,9 @@ class PlotDefinitionWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
+        self.build_ui()
+
+    def build_ui(self):
         self.table = QTableWidget(0, 7)
 
         self.table.setHorizontalHeaderLabels(
