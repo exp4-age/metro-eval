@@ -545,6 +545,8 @@ class MainWindow(QMainWindow):
         '''
         Sets self.calibration=None and changes data_current to data_raw
         '''
+        self.data_postproc = self.data_raw
+        self.data_calibrated = self.data_raw
         self.data_current = self.data_raw
         self.on_array_change()
         self.logger.info("data is changed to raw data")
@@ -602,13 +604,14 @@ class MainWindow(QMainWindow):
     def handle_masking_request(self, request) -> None:
         '''
         Is called by the "Apply" Button in the Maksing Box.
-        Applies the selected filters to self.data_postproc.
+        Applies the selected filters to self.data_calibrated and 
+        stores the result in self.data_current.
         '''
         
         if self.data_current is None:
             self.logger.warning("No data loaded, cannot mask")
             return
-        data = self.data_postproc
+        data = self.data_calibrated.copy()
         filters = []
         for row in request:
             # For each checked masking row, the data is filtered.
@@ -651,8 +654,7 @@ class MainWindow(QMainWindow):
         '''
         
         for key in self.status.keys():
-            if key == "File(s)" or key == "Coincidence":
-                self.set_status(key, "N/A")
+            self.set_status(key, "N/A")
  
 
     def enable_postprocessing(self):
@@ -805,7 +807,9 @@ class MainWindow(QMainWindow):
         # set data_postproc and data_current
         self.data_postproc = overlap(self.data_raw, overlap_params['repetition_time'], 
                                      roi_first, roi_last, nPhotons=p_amount)
+        self.data_calibrated = self.data_postproc
         self.data_current = self.data_postproc
+        
         
         # Update status
         self.set_status("Bunch overlap", True)
