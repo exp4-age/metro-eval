@@ -97,7 +97,11 @@ class HistogramPage(AnalysisPage):
     Simple 1D histogram plot page.
     """
 
-    def __init__(self, values, edges, xlabel="", ylabel="", plot_kwargs={}):
+    def __init__(self, values, 
+                 edges, 
+                 xlabel="", 
+                 ylabel="", 
+                 plot_kwargs={}):
         super().__init__("1D Histogram")
 
         self.plot_widget = pg.PlotWidget()

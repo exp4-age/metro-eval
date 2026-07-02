@@ -45,7 +45,6 @@ def read_coinc(file_path, key):
             # Reshape dimensions of 1D arrays
             if data.ndim == 1:
                 data = data.reshape(-1, 1)
-
         else:
             print(f"Warning: {key} not in {file_path}")
             return 

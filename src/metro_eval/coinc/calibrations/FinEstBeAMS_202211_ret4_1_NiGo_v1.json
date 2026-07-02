@@ -4,6 +4,7 @@
     "author": "NiGo",
     "version": "v1",
     "index": "1",
+    "last edit": "",
     "Comments": "",
     "method": "odr",
     "model_type": "poly_offset",
@@ -223,5 +224,6 @@
             619.5,
             1.5
         ]
-    ]
+    ],
+    "created_date": "2026-07-02, 11:17:25"
 }

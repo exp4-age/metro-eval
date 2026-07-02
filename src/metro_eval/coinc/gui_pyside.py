@@ -36,7 +36,7 @@ QLocale.setDefault(QLocale(QLocale.C))  # "C" locale = dot as decimal point
 import pyqtgraph as pg
 import numpy as np
 import logging
-from dataclasses import dataclass
+from datetime import datetime
 
 from metro_eval.coinc.file_handler import get_keys, read_coinc, ScanData, ScanSpectrum, read_scan
 from metro_eval.coinc.plot_functions import hist_1D
@@ -71,6 +71,8 @@ class MainWindow(QMainWindow):
         self.data_postproc = None
         self.data_calibrated = None
         self.data_current = None
+
+        self.last_directory = ""
 
         # The CalibrationEditor window
         self.calibration_editor=None
@@ -254,18 +256,20 @@ class MainWindow(QMainWindow):
         calibration_layout = QGridLayout()
 
         self.calibration_combo = QComboBox()
-        self.calibration_combo.addItems(["Select calibration"])
-        self.calibration_combo.addItems([file.name for file in list_calibrations()])
-        self.calibration_combo.setCurrentIndex(0)
+        self.update_calib_list()
 
         self.new_calib_btn = QPushButton("New")
         self.new_calib_btn.clicked.connect(self.open_new_calibration_in_editor)
 
+        # Update the shown calibrations
+        self.update_calib_list_btn = QPushButton()
+        self.update_calib_list_btn.setIcon(QIcon.fromTheme(QIcon.ThemeIcon.ViewRefresh))
+        self.update_calib_list_btn.clicked.connect(self.update_calib_list)
 
         calib_buttons = QGridLayout()
 
         self.apply_calib_btn = QPushButton("Apply")
-        self.open_calib_btn = QPushButton("Open")
+        self.open_calib_btn = QPushButton("View")
         self.edit_calib_btn = QPushButton("Edit")
         self.remove_calib_btn = QPushButton("Remove")
 
@@ -282,7 +286,8 @@ class MainWindow(QMainWindow):
 
         calibration_layout.addWidget(self.calibration_combo,0,0)
         calibration_layout.addWidget(self.new_calib_btn,0,1)
-        calibration_layout.addLayout(calib_buttons, 1,0,1,2)
+        calibration_layout.addWidget(self.update_calib_list_btn,0,2)
+        calibration_layout.addLayout(calib_buttons, 1,0,1,3)
 
         self.calibration_box.setLayout(calibration_layout)
 
@@ -412,17 +417,23 @@ class MainWindow(QMainWindow):
         file_path, _ = QFileDialog.getOpenFileNames(
             self,
             "Select file",
-            "",
+            self.last_directory,
             "All Files (*.*)"
         )
+        
 
         if file_path:
             self.file_path = list(file_path)
             label=""
             for file in file_path:
-                label += os.path.basename(file)+", "
+                head, tail = os.path.split(file)
+                label += tail+", "
             label = label[:-2]
             self.file_label.setText(label)
+
+            # Use the directory of the last loaded file as the start directory
+            # for the next browsing
+            self.last_directory = head
 
             # Populate the dropdown with the keys from the files
             keys=self.load_keys_from_file()
@@ -526,7 +537,7 @@ class MainWindow(QMainWindow):
         self.calibration = self.get_selected_calibration()
         self.logger.info(self.calibration.bunch_overlap_params)
         overlap_params = self.calibration.bunch_overlap_params
-        self.data_postproc = self.apply_overlap_core(overlap_params=overlap_params)
+        self.apply_overlap_core(overlap_params=overlap_params)
         self.calibrate()
         self.set_status("Calibrated", "Yes, "+self.calibration.generate_filename())
             
@@ -621,6 +632,12 @@ class MainWindow(QMainWindow):
         # Array changed
         self.on_array_change()
 
+    def update_calib_list(self):
+        self.calibration_combo.clear()
+        self.calibration_combo.addItems(["Select calibration"])
+        self.calibration_combo.addItems([file.name for file in list_calibrations()])
+        self.calibration_combo.setCurrentIndex(0)
+
         
     # ======================================
     # HELPER FUNCTIONS
@@ -675,13 +692,15 @@ class MainWindow(QMainWindow):
         self.set_status("Data shape (raw)", self.data_raw.shape)
         self.set_status("Data shape (current)", self.data_current.shape)
         
+        '''
+        Impractical, we dont want that every time the array changes.
         # Update the values for the available columns in the PlotDefinitionWidget
         for row in range(self.plot_widget.table.rowCount()):
             combo = self.plot_widget.table.cellWidget(row, 2,)
             combo.clear()
             combo.addItems([f"{i+1}" for i in range(self.data_current.shape[1])])
         
-        #TODO Do the same for the Masking widget 
+        '''
 
             
 
@@ -805,8 +824,6 @@ class MainWindow(QMainWindow):
         Applies the calibration function from self.calibration to 
         self.data_postproc and sets data_calibrated and data_current
         '''
-        print(self.calibration.popt)
-        print(self.data_postproc)
         self.data_calibrated = self.calibration.convert(self.data_postproc)
         self.data_current = self.data_calibrated
 
@@ -919,7 +936,7 @@ class CalibrationEditor(QMainWindow):
 
         form = QFormLayout()
 
-        for field_name in ["experiment", "setting", "author", "version", "index"]:
+        for field_name in ["experiment", "setting", "index", "author", "version", "last edit"]:
             edit = QLineEdit()
             self.fields[field_name] = edit
             form.addRow(field_name + ":", edit)
@@ -929,7 +946,10 @@ class CalibrationEditor(QMainWindow):
             self.fields["author"].setText(str(self.calibration.metadata.author))
             self.fields["version"].setText(str(self.calibration.metadata.version))
             self.fields["index"].setText(str(self.calibration.metadata.index))
-            
+        
+        self.fields["last edit"].setReadOnly(True)
+        self.fields["last edit"].setText(self.calibration.created_date)
+
         self.fields["Comments"] = QTextEdit()
         form.addRow("Comments:", self.fields["Comments"])
         self.fields["Comments"].setText(self.calibration.comments)
@@ -1213,7 +1233,13 @@ class CalibrationEditor(QMainWindow):
             }
         info["fitted_parameters"] = fit_results
         info["bunch_overlap"] = self.get_bunch_overlap_params_from_edits()
-        info["calibration_points"] = self.get_calibration_points()        
+        info["calibration_points"] = self.get_calibration_points()   
+        
+        # Save with timestamp
+        now = datetime.now()
+        timestamp = now.strftime("%Y-%m-%d, %H:%M:%S")
+        info["created_date"] = timestamp
+
         self.calibration = Calibration(info)
 
     def get_initial_fit_parameters_from_edits(self) -> list:
@@ -1935,7 +1961,7 @@ class PlotWorkspace(QWidget):
         page = SignalPage(x, y)
         self.add_page(page)
 
-    def add_histogram_plot(self, values, edges, xlabel="", ylabel=""):
+    def add_histogram_plot(self, values, edges, xlabel=None, ylabel=None):
         page = HistogramPage(values, edges, xlabel=xlabel, ylabel=ylabel)
         self.add_page(page)
 

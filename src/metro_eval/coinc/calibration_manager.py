@@ -105,7 +105,12 @@ class Calibration:
         self.model_func=None
         self.p0=None
         self.popt=None
-        self.bunch_overlap_params=None
+        self.bunch_overlap_params={
+            "repetition_time" : None,
+            "ROI_first" : [None, None],
+            "ROI_last" : [None, None],
+        }
+        self.created_date=""
         self.metadata=ExperimentMetadata()
 
         if calibration_dict is not None:
@@ -140,6 +145,8 @@ class Calibration:
             self.bunch_overlap_params = data_dict["bunch_overlap"]
         if 'Comments' in data_dict:
             self.comments = data_dict["Comments"]
+        if 'created_date' in data_dict:
+            self.created_date = data_dict["created_date"]
             
             
         if self.x_values is None or self.y_values is None:
