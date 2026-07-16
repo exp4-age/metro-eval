@@ -258,7 +258,8 @@ class MainWindow(QMainWindow):
         self.calibration_combo = QComboBox()
         self.update_calib_list()
 
-        self.new_calib_btn = QPushButton("New")
+        self.new_calib_btn = QPushButton("")
+        self.new_calib_btn.setIcon(QIcon.fromTheme(QIcon.ThemeIcon.DocumentNew))
         self.new_calib_btn.clicked.connect(self.open_new_calibration_in_editor)
 
         # Update the shown calibrations
@@ -1003,9 +1004,9 @@ class CalibrationEditor(QMainWindow):
         reptime_form = QFormLayout(reptime_group)
 
         reptime_form.addRow("MAX IV", QLabel("318.76"))
-        reptime_form.addRow("PETRA 3 (40-bunch)", QLabel("(192)"))
-        reptime_form.addRow("BESSY II", QLabel("(790)"))
-        reptime_form.addRow("Soleil", QLabel("(1176)"))
+        reptime_form.addRow("PETRA 3 (40-bunch)", QLabel("191.22"))
+        reptime_form.addRow("BESSY II", QLabel("796.8"))
+        reptime_form.addRow("Soleil", QLabel("1175.66"))
 
 
         bo_layout.addWidget(reptime_group, 3,0,1,2)
