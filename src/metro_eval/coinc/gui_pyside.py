@@ -1571,6 +1571,7 @@ class CalibrationEditor(QMainWindow):
             
 
 class PlotDefinitionWidget(QWidget):
+    """Widget that defines histogram and XY plot requests from the active dataset."""
 
     histogram_requested = Signal(dict)
     xy_requested = Signal(dict)
@@ -1581,6 +1582,7 @@ class PlotDefinitionWidget(QWidget):
         self.build_ui()
 
     def build_ui(self):
+        """Build the table of plot rows, each defining a data column, range, and binning."""
         self.table = QTableWidget(0, 7)
 
         self.table.setHorizontalHeaderLabels(
@@ -1720,7 +1722,7 @@ class PlotDefinitionWidget(QWidget):
             self.table.removeRow(row)
 
     # --------------------------------------------------
-    # Radio button handling
+    # Selection handling for XY plots
     # --------------------------------------------------
 
 
@@ -1789,7 +1791,7 @@ class PlotDefinitionWidget(QWidget):
         }
 
     # --------------------------------------------------
-    # Histogram requests
+    # Histogram request emission
     # --------------------------------------------------
 
     def histogram_button_clicked(self):
@@ -1812,7 +1814,7 @@ class PlotDefinitionWidget(QWidget):
                 return
 
     # --------------------------------------------------
-    # XY requests
+    # XY request emission
     # --------------------------------------------------
 
     def request_xy_plot(self):
@@ -1851,6 +1853,7 @@ class PlotDefinitionWidget(QWidget):
         self.xy_requested.emit(request)
 
 class MaskSelectionWidget(QWidget):
+    """Widget for selecting column-wise value filters that are applied to the active data."""
 
     masking_requested = Signal(list)
 
@@ -1942,7 +1945,7 @@ class MaskSelectionWidget(QWidget):
             self.table.removeRow(row)
 
     # --------------------------------------------------
-    # Checkbox handling
+    # Selected-mask handling
     # --------------------------------------------------
 
     def get_selected_rows(self):
@@ -1991,7 +1994,7 @@ class MaskSelectionWidget(QWidget):
         }
 
     # --------------------------------------------------
-    # request masking
+    # Mask request emission
     # --------------------------------------------------
 
     def request_masking(self):
@@ -2013,9 +2016,7 @@ class MaskSelectionWidget(QWidget):
         self.masking_requested.emit(request)
 
 class PlotWorkspace(QWidget):
-    """
-    Reusable plotting workspace.
-    """
+    """Reusable tabbed workspace for displaying histograms, maps, scans, and calibration views."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
