@@ -202,7 +202,7 @@ class CoincWidget(QtWidgets.QWidget):
         font = QtGui.QFont()
         font.setPointSize(11)
         self.setFont(font)
-        self.css_style = {"font-size": "11pt"}
+        self.css_style = {"font-size": "11pt", "color": "k"}
 
         # store the data
         self.data = data
@@ -231,6 +231,16 @@ class CoincWidget(QtWidgets.QWidget):
         self._add_x_projection()
         self._add_y_projection()
         self._add_colorbar()
+
+        # Fix the space reserved for axes
+        left_width = 60
+        bottom_height = 50
+
+        self.plot_x.getAxis("left").setWidth(left_width)
+        self.plot_coinc.getAxis("left").setWidth(left_width)
+
+        self.plot_coinc.getAxis("bottom").setHeight(bottom_height)
+        self.plot_y.getAxis("bottom").setHeight(bottom_height)
 
         # set spacing and stretch of the plots
         layout = self.plot_layout.ci.layout

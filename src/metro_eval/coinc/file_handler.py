@@ -6,6 +6,7 @@ from __future__ import annotations
 import os 
 import h5py
 import numpy as np
+import re
 from dataclasses import dataclass
 
 
@@ -50,21 +51,29 @@ def read_coinc(file_path, key):
             return 
     return data
 
-def read_scan(file_path, coincKeys = None) -> ScanData:
+def read_scan(file_path, coincKeys = None, verbalize=True) -> ScanData:
     step_list = []
+
     with h5py.File(file_path, 'r') as f:
         base_group = f['0']
         for step in base_group.keys():
-            data_dict = {}
+            if step == "by_idx":
+                continue
+            if verbalize: print(step)
             if coincKeys == None:
-                coincKeys = list(base_group[step].keys())
-            for key in coincKeys:
-                if key == "other":
+                keyList = list(base_group[step].keys())
+            else:
+                keyList = coincKeys
+            
+            data_dict = {}
+            for key in keyList:
+                if not isProperKey(key):
                     continue
                 data_dict[key] = np.asarray(base_group[step][key])*0.025
                 # Reshape dimensions of 1D arrays
                 if data_dict[key].ndim == 1:
                     data_dict[key] = data_dict[key].reshape(-1, 1)
+                if verbalize: print(list(data_dict.keys()))
 
             spec = ScanSpectrum(scan_value=float(step),
                                 data_dict=data_dict)
@@ -72,8 +81,31 @@ def read_scan(file_path, coincKeys = None) -> ScanData:
         
     return ScanData(step_list)
             
-
-
+def isProperKey(s: str) -> bool:
+    """
+    Allowed patterns:
+      - E, EE, EEE, EEEE
+      - EP, EEP
+      - P, PP
+      - 1E, 2E, ..., 9E
+      - 1P, 2P, ..., 9P
+      - 1E1P, 1E2P, ..., 9E9P  
+    
+    """
+    pattern = re.compile(
+        r'^'
+        r'(?:'
+        r'(?:[1-9]?E{1,4})'      # E-only: E–EEEE or 1E–9E
+        r'|'
+        r'(?:[1-9]?P{1,2})'      # P-only: P, PP or 1P–9P
+        r'|'
+        r'(?:E{1,2}P)'           # EP mixed (letters only): EP, EEP
+        r'|'
+        r'(?:[1-9]E[1-9]P{1,2})'
+        r')'
+        r'$'
+    )
+    return bool(pattern.match(s))
 
 @dataclass
 class ScanSpectrum:

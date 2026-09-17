@@ -38,7 +38,7 @@ import numpy as np
 import logging
 from datetime import datetime
 
-from metro_eval.coinc.file_handler import get_keys, read_coinc, ScanData, ScanSpectrum, read_scan
+from metro_eval.coinc.file_handler import get_keys, read_coinc, ScanData, ScanSpectrum, read_scan, isProperKey
 from metro_eval.coinc.plot_functions import hist_1D
 from metro_eval.coinc.analysis_pages import CoincmapPage, SignalPage, HistogramPage, CalibrationViewPage, ScanAnalysisPage
 from metro_eval.coinc.postprocessing import overlap
@@ -127,7 +127,6 @@ class MainWindow(QMainWindow):
         left_panel.addWidget(data_group)
         left_panel.addWidget(post_group)
         left_panel.addWidget(masking_group)
-        left_panel.addStretch()
 
         # =========================
         # CENTER PANEL
@@ -152,7 +151,6 @@ class MainWindow(QMainWindow):
         center_panel.addWidget(status_group)
         center_panel.addWidget(plot_group)
         center_panel.addWidget(self.log_widget)
-        center_panel.addStretch()
 
         # =========================
         # RIGHT PANEL       
@@ -550,6 +548,8 @@ class MainWindow(QMainWindow):
         self.data_calibrated = self.data_raw
         self.data_current = self.data_raw
         self.on_array_change()
+
+        self.set_status("Calibrated", "N/A")
         self.logger.info("data is changed to raw data")
                     
 
@@ -594,7 +594,10 @@ class MainWindow(QMainWindow):
         range_1 = (request['x']['min'], request['x']['max'])   
         range_2 = (request['y']['min'], request['y']['max'])
 
-        units = "ns"  #TODO change the units for the case of calibrated data
+        if self.status["Calibrated"] == "N/A":
+            units = "ns"  
+        else:
+            units = "eV"
         
         # Plots to the PlotWorkspace
         self.plot_workspace.add_coincidence_map(self.data_current[:, [col_idx[0], col_idx[1]]],
@@ -829,7 +832,45 @@ class MainWindow(QMainWindow):
         Applies the calibration function from self.calibration to 
         self.data_postproc and sets data_calibrated and data_current
         '''
-        self.data_calibrated = self.calibration.convert(self.data_postproc)
+        data = self.data_postproc
+        ndim = data.ndim
+        try:
+            _, nphotons = self.EP_number_from_string(self.status['Coincidence'])
+        except ValueError:
+            QMessageBox.warning(
+                            self,                     
+                            "Invalid input",          
+                            "The coincidence string cannot be used!"
+                        )
+            return
+    
+        if nphotons > 0:
+            if ndim == 1:
+                electrons = data[:-nphotons]
+                photons = data[-nphotons:]
+            else:
+                electrons = data[:, :-nphotons]
+                photons = data[:, -nphotons:]
+        else:
+            electrons = data
+            photons = None
+    
+        # calibrate electrons
+        electrons_cal = self.calibration.convert(electrons)
+    
+        result = np.empty_like(data)
+    
+        if nphotons > 0:
+            if ndim == 1:
+                result[:-nphotons] = electrons_cal
+                result[-nphotons:] = photons
+            else:
+                result[:, :-nphotons] = electrons_cal
+                result[:, -nphotons:] = photons
+        else:
+            result[:] = electrons_cal
+    
+        self.data_calibrated = result
         self.data_current = self.data_calibrated
 
         # Update status
@@ -865,7 +906,8 @@ class MainWindow(QMainWindow):
         From a given string (coincidence key), deduct the number 
         of electron and photon columns in the data.
         '''
-        
+        if not isProperKey(string):
+            raise ValueError(f"Expected regular coincidence string, got: {string}")
         if string.isalpha():
             e_amount = string.count("E")
             p_amount = string.count("P")
@@ -875,7 +917,10 @@ class MainWindow(QMainWindow):
             if e_index != -1:
                 try:
                     e_amount = int(string[:e_index])
-                    p_amount = int(string[e_index+1:p_index])
+                    if p_index == -1:
+                        p_amount = 0
+                    else:
+                        p_amount = int(string[e_index+1:p_index])
                 except ValueError:
                     print(f"Warning: Could not evaluate {string}.")
         return e_amount, p_amount
@@ -941,17 +986,27 @@ class CalibrationEditor(QMainWindow):
 
         form = QFormLayout()
 
-        for field_name in ["experiment", "setting", "index", "author", "version", "last edit"]:
+        entry_fields = [
+            ("experiment", "beamline_yyyymm"), 
+            ("setting", "e.g. acc4, ret32, ..."), 
+            ("index", "1"),
+            ("author","Your signature (NiGo)"), 
+            ("version","v1"), 
+            ("last edit","")
+            ]
+
+        for field_name, placeholder in entry_fields:
             edit = QLineEdit()
             self.fields[field_name] = edit
             form.addRow(field_name + ":", edit)
+            self.fields[field_name].setPlaceholderText(placeholder)
         if self.calibration.metadata is not None:
             self.fields["experiment"].setText(str(self.calibration.metadata.experiment))
             self.fields["setting"].setText(str(self.calibration.metadata.setting))
             self.fields["author"].setText(str(self.calibration.metadata.author))
             self.fields["version"].setText(str(self.calibration.metadata.version))
             self.fields["index"].setText(str(self.calibration.metadata.index))
-        
+
         self.fields["last edit"].setReadOnly(True)
         self.fields["last edit"].setText(self.calibration.created_date)
 
@@ -1006,6 +1061,7 @@ class CalibrationEditor(QMainWindow):
         reptime_form.addRow("MAX IV", QLabel("318.76"))
         reptime_form.addRow("PETRA 3 (40-bunch)", QLabel("191.22"))
         reptime_form.addRow("BESSY II", QLabel("796.8"))
+        reptime_form.addRow("BESSY II (4-bunch)", QLabel("199.2"))
         reptime_form.addRow("Soleil", QLabel("1175.66"))
 
 
@@ -1055,16 +1111,16 @@ class CalibrationEditor(QMainWindow):
         self.manual_points_entries = {}
 
         self.manual_points_entries["x"] = QLineEdit()
-        self.manual_points_entries["x"].setPlaceholderText("x")
+        self.manual_points_entries["x"].setPlaceholderText("TOF")
 
         self.manual_points_entries["xerr"] = QLineEdit()
-        self.manual_points_entries["xerr"].setPlaceholderText("xerr")
+        self.manual_points_entries["xerr"].setPlaceholderText("ΔTOF")
         
         self.manual_points_entries["y"] = QLineEdit()
-        self.manual_points_entries["y"].setPlaceholderText("y")
+        self.manual_points_entries["y"].setPlaceholderText("E")
         
         self.manual_points_entries["yerr"] = QLineEdit()
-        self.manual_points_entries["yerr"].setPlaceholderText("yerr")
+        self.manual_points_entries["yerr"].setPlaceholderText("ΔE")
 
         self.add_row_btn = QPushButton()
         self.add_row_btn.setIcon(QIcon.fromTheme(QIcon.ThemeIcon.ListAdd))
@@ -1421,7 +1477,7 @@ class CalibrationEditor(QMainWindow):
 
 
 
-    def browse_scans(self):
+    def browse_scans(self, verbalize=False):
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Select file",
@@ -1432,22 +1488,36 @@ class CalibrationEditor(QMainWindow):
         filename= os.path.basename(file_path)
 
         # Enable choice later
-        coinc_key = ["E"]
+        coinc_key = ["1E", "E"]
+
         col_idx = 0
-        
-        scan = read_scan(file_path=file_path, coincKeys=coinc_key)
 
-        for spec in scan.spectra:
-            data = spec.data_dict[coinc_key[0]]
-            h = 0.5  # chosen bin width
-            edges = np.arange(data.min(), data.max() + h, h)
+        if verbalize: print("About to read")
+        scan = read_scan(file_path=file_path)
+        if verbalize: print("I can read")
 
-            counts, edges = np.histogram(data, bins=edges)
-            spec.x = edges[:-1]
-            spec.y = counts
-        
-        page = self.plot_tab_widget.add_scan_analysis(scan)
-        page.point_submitted.connect(self.handle_point_submission_request)
+        for key in coinc_key:
+            validKey = True
+            for spec in scan.spectra:
+                if key in list(spec.data_dict.keys()):
+                    print(key, " is in spec ", spec.scan_value)
+                else:
+                    print(key, " is not in spec ", spec.scan_value)
+                    validKey = False
+                    break
+            if validKey:
+                for spec in scan.spectra:
+                    if verbalize: print("started the loop")
+                    data = spec.data_dict[key]
+                    h = 0.5  # chosen bin width
+                    edges = np.arange(data.min(), data.max() + h, h)
+
+                    counts, edges = np.histogram(data, bins=edges)
+                    spec.x = edges[:-1]
+                    spec.y = counts
+                
+                page = self.plot_tab_widget.add_scan_analysis(scan)
+                page.point_submitted.connect(self.handle_point_submission_request)
     
     def add_dummy_scan(self):
 
@@ -1610,6 +1680,7 @@ class PlotDefinitionWidget(QWidget):
         bins_sb.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
         bins_sb.setRange(1, 10000)
         bins_sb.setValue(100)
+        bins_sb.setSingleStep(10)
         bins_sb.setButtonSymbols(QSpinBox.NoButtons)
 
         plot_button = QPushButton("Plot")
