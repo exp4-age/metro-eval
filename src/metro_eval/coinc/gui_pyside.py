@@ -1,3 +1,10 @@
+"""Main PySide6 analysis window for coincidence data workflows.
+
+The application loads raw datasets, chooses a coincidence branch, applies bunch-overlap
+correction and optional calibration, filters the data, and displays the results through
+interactive histogram and 2D coincidence plots.
+"""
+
 import os
 import sys
 
@@ -97,6 +104,7 @@ class MainWindow(QMainWindow):
         self.build_ui()
 
     def build_ui(self):
+        """Construct the complete main-window layout for the coincidence analysis workflow."""
 
         # =========================
         # CENTRAL WIDGET
@@ -191,9 +199,9 @@ class MainWindow(QMainWindow):
     # =========================
 
     def _add_data_selection_group(self):
-        ''' 
-        Reusable function to create the data selection group, which contains
-        the file selection, the dataset selection and the load button
+        '''
+        Create the file-selection section used to choose one or more input datasets and
+        decide which coincidence branch should be loaded.
         '''
 
         data_group = QGroupBox("Data selection")
@@ -220,8 +228,8 @@ class MainWindow(QMainWindow):
 
     def _add_postprocessing_group(self):
         '''
-        Reusable function to create the postprocessing group, which contains
-        the calibration and the overlap options
+        Create the processing panel that controls automatic/manual overlap handling and
+        calibration selection for the currently loaded dataset.
         '''
 
         post_group = QGroupBox("Postprocessing")
@@ -342,8 +350,8 @@ class MainWindow(QMainWindow):
         
     def _add_masking_group(self):
         '''
-        Reusable function to create the masking group, which contains
-        the options for masking the data, which can be by column or by ... other options in the future
+        Create the masking panel used to filter the working dataset by value range.
+        The current implementation supports column-wise range masks.
         '''
 
         masking_group = QGroupBox("Masking")
@@ -360,7 +368,8 @@ class MainWindow(QMainWindow):
 
     def _add_status_group(self):
         '''
-        Display the most important applied settings and the status of data_current. 
+        Display the current state of the loaded dataset, including file selection,
+        calibration status, overlap state, and active mask information.
         '''
 
         self.status_group = QGroupBox("Data status")
@@ -383,8 +392,8 @@ class MainWindow(QMainWindow):
     
     def _add_plot_settings_group(self):
         '''
-        Adds the GroupBox for the plot settings. The tabled widget is defined
-        in the PlotDefinitionWidget class
+        Add the plotting configuration panel used to define histogram and XY plots from
+        the active dataset.
         '''
 
         plot_group = QGroupBox("Plot settings")
@@ -552,9 +561,6 @@ class MainWindow(QMainWindow):
         self.set_status("Calibrated", "N/A")
         self.logger.info("data is changed to raw data")
                     
-
-        
-
     def handle_histogram_request(self, request) -> None:
         '''
         Is called by the Plot Buttons in the rows of the PlotDefinitionWidget. Reads the entries from
@@ -680,8 +686,6 @@ class MainWindow(QMainWindow):
             self.overlap_box.setEnabled(False)
             self.calibration_box.setEnabled(True)
         
-
-
     def on_array_change(self):
         '''
         This function should be called whenever self.data_current is updated, to
@@ -698,15 +702,6 @@ class MainWindow(QMainWindow):
         self.set_status("Data shape (raw)", self.data_raw.shape)
         self.set_status("Data shape (current)", self.data_current.shape)
         
-        '''
-        Impractical, we dont want that every time the array changes.
-        # Update the values for the available columns in the PlotDefinitionWidget
-        for row in range(self.plot_widget.table.rowCount()):
-            combo = self.plot_widget.table.cellWidget(row, 2,)
-            combo.clear()
-            combo.addItems([f"{i+1}" for i in range(self.data_current.shape[1])])
-        
-        '''
 
             
 
@@ -717,7 +712,7 @@ class MainWindow(QMainWindow):
         Transfers the contents of status to the display.
         '''
 
-        # Make change in self.staturs
+        # Make change in self.status
         self.status[key] = value
 
         # Make change in the status display
@@ -775,8 +770,8 @@ class MainWindow(QMainWindow):
 
     def read_manual_overlap_params(self) -> dict:
         '''
-        Reads the entries from the QLineEdit widgets in the manual bunch overlap box and
-        returns a dictionary with the floating point values
+        Read the manual overlap values from the GUI fields and convert them to the
+        dictionary format expected by the overlap processing function.
         '''
         
         overlap_params = {}
@@ -799,16 +794,18 @@ class MainWindow(QMainWindow):
 
     def apply_overlap_core(self, overlap_params):
         '''
-        Core functionality to apply overlap to data.
+        Apply a bunch-overlap correction to the currently loaded raw data and move the
+        working array into the postprocessed state.
         '''
         
         roi_first = overlap_params["ROI_first"]
         roi_last = overlap_params["ROI_last"]
 
-        # Check how many columns correspond to photon data (different handling in overlap())
+        # Some coincidence keys include photons, which need special handling in the
+        # overlap function. We therefore derive the photon count from the key.
         _, p_amount = self.EP_number_from_string(self.status['Coincidence'])
         
-        # set data_postproc and data_current
+        # Set the postprocessed dataset as the active working array.
         self.data_postproc = overlap(self.data_raw, overlap_params['repetition_time'], 
                                      roi_first, roi_last, nPhotons=p_amount)
         self.data_calibrated = self.data_postproc
@@ -829,8 +826,8 @@ class MainWindow(QMainWindow):
     
     def calibrate(self) -> None:
         '''
-        Applies the calibration function from self.calibration to 
-        self.data_postproc and sets data_calibrated and data_current
+        Apply the selected calibration model to the postprocessed data while leaving
+        photon columns unchanged and updating the current working array.
         '''
         data = self.data_postproc
         ndim = data.ndim
@@ -845,6 +842,8 @@ class MainWindow(QMainWindow):
             return
     
         if nphotons > 0:
+            # Photons are part of the coincidence record but should not be calibrated,
+            # so they are separated and re-inserted after the electron calibration.
             if ndim == 1:
                 electrons = data[:-nphotons]
                 photons = data[-nphotons:]
@@ -861,6 +860,7 @@ class MainWindow(QMainWindow):
         result = np.empty_like(data)
     
         if nphotons > 0:
+            # Restore the uncalibrated photon columns after the electron calibration.
             if ndim == 1:
                 result[:-nphotons] = electrons_cal
                 result[-nphotons:] = photons
@@ -869,7 +869,9 @@ class MainWindow(QMainWindow):
                 result[:, -nphotons:] = photons
         else:
             result[:] = electrons_cal
-    
+
+        # Keep a separate calibrated array while exposing the calibrated version as the
+        # currently active working dataset.
         self.data_calibrated = result
         self.data_current = self.data_calibrated
 
@@ -882,9 +884,8 @@ class MainWindow(QMainWindow):
 
     def get_selected_calibration(self) -> Calibration:
         '''
-        Reads the currently displayed value from the calibraiton combobox. Then,
-        it loads the calibration json file with the selected name and initialzes
-        a Calibration() object.
+        Read the selected calibration name from the dropdown and load the matching
+        calibration JSON into a Calibration object.
         '''
         
         name = self.calibration_combo.currentText()
@@ -903,15 +904,17 @@ class MainWindow(QMainWindow):
     @staticmethod
     def EP_number_from_string(string: str) -> tuple:
         '''
-        From a given string (coincidence key), deduct the number 
-        of electron and photon columns in the data.
+        Deduce the number of electron and photon columns implied by a coincidence key
+        such as "E", "EE", "2E1P", or "P".
         '''
         if not isProperKey(string):
             raise ValueError(f"Expected regular coincidence string, got: {string}")
         if string.isalpha():
+            # If the string is only letters, we can just count the letters
             e_amount = string.count("E")
             p_amount = string.count("P")
         else:
+            # If the string contains numbers, we need to parse them. The format is expected to be like "2E1P" or "3E" or "1P", etc.
             e_index = string.find("E")
             p_index = string.find("P")
             if e_index != -1:
@@ -925,7 +928,25 @@ class MainWindow(QMainWindow):
                     print(f"Warning: Could not evaluate {string}.")
         return e_amount, p_amount
 
-    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#-----------------------------------------
+# Calibration Editor Class
+#-----------------------------------------
+
 class CalibrationEditor(QMainWindow):
     def __init__(self, calibration: Calibration | None = None, parent=None):
         super().__init__(parent)
@@ -977,9 +998,8 @@ class CalibrationEditor(QMainWindow):
         
     def _add_data_info_panel(self) -> QGroupBox:
         '''
-        Builds group box containing lineedits to enter the
-        general information on the calibration as well as comments 
-        and a save button
+        Build the metadata section for a calibration definition, including experiment
+        information, author metadata, comments, and the save action.
         '''
         info_group = QGroupBox("General information")
         self.fields = {}
@@ -1076,12 +1096,8 @@ class CalibrationEditor(QMainWindow):
 
     def _add_points_panel(self) -> QGroupBox:
         '''
-        Returns a QGroupBox() object, which contains a table displaying the calibration points 
-        and QLineEdit Widgets + a  Button to enter new calibraiton points to the table.
-
-        Add: Line Removal
-        Add: On changing elements in the table, the Calibraiton object is reinitialized with the 
-        current entries.
+        Build the calibration points editor. It provides a table of TOF/energy reference
+        points and widgets for adding or removing rows from the active calibration.
         '''
         points_panel = QGroupBox("Calibration points")
 
@@ -1145,6 +1161,7 @@ class CalibrationEditor(QMainWindow):
         return points_panel
 
     def _add_data_exploration(self) -> QHBoxLayout:
+        """Create the exploratory scan view area used to inspect dummy or imported scans."""
 
         layout = QHBoxLayout()
         
@@ -1172,6 +1189,7 @@ class CalibrationEditor(QMainWindow):
 
 
     def _add_cal_plot_panel(self) -> QGroupBox:
+        """Create the fit and calibration-curve panel used to visualize the active model."""
         
         cal_plot_panel = QGroupBox("Calibration function")
         cal_plot_layout = QVBoxLayout()
@@ -1241,8 +1259,8 @@ class CalibrationEditor(QMainWindow):
 
     def save(self) -> None:
         '''
-        Populates the information in the lineedits etc to 
-        calibration and saves the calibration to a json file
+        Convert the current editor fields into a calibration object and save it to disk,
+        asking for confirmation before overwriting an existing file.
         '''
 
         self.populate_calibration_from_edits()
@@ -1265,8 +1283,8 @@ class CalibrationEditor(QMainWindow):
 
     def populate_calibration_from_edits(self) -> None:
         '''
-        Reads the entries in the QLineEdit widgets (and later also other important widgets) to a dicitonary. 
-        Then, a Calibration object is initialized with this dictionary. This is set to be the new self.calibration property. 
+        Collect the current metadata, fit settings, overlap values, and calibration points
+        into a dictionary and rebuild the active Calibration object from it.
         '''
         info = {}
         
@@ -1304,6 +1322,7 @@ class CalibrationEditor(QMainWindow):
         self.calibration = Calibration(info)
 
     def get_initial_fit_parameters_from_edits(self) -> list:
+        """Return the initial fit parameters currently entered in the calibration editor."""
         parameter_list = []
         for i in range(len(self.init_params_edits)):
             if self.init_params_edits[f"a{i}"].text() == "":
@@ -1418,8 +1437,8 @@ class CalibrationEditor(QMainWindow):
         
     def points_from_manual_entries(self) -> None:
         '''
-        Takes the values entered in the self.maual_point_entries QLineEdits 
-        and forwards them, so that they are added to the calibration
+        Read the manually entered point fields and append the new calibration point to the
+        active calibration data.
         '''
         
         for key, entry in self.manual_points_entries.items():
@@ -1434,16 +1453,8 @@ class CalibrationEditor(QMainWindow):
 
     def add_points_row(self, entries: dict) -> None:
         '''
-        Takes entries with the format:
-        entries = {
-            "x" : string,
-            "xerr" : string,
-            "y" : string,
-            "yerr" : string,
-        }
-        and appends them to self.calibration.x_values etc.
-        Then, the points_table is populated from self.calibration and the 
-        calibration_point plot is replotted.
+        Append a single calibration point to the active calibration arrays and refresh the
+        displayed table and plot.
         '''
 
 
@@ -1492,17 +1503,14 @@ class CalibrationEditor(QMainWindow):
 
         col_idx = 0
 
-        if verbalize: print("About to read")
         scan = read_scan(file_path=file_path)
-        if verbalize: print("I can read")
 
         for key in coinc_key:
             validKey = True
             for spec in scan.spectra:
                 if key in list(spec.data_dict.keys()):
-                    print(key, " is in spec ", spec.scan_value)
+                    continue
                 else:
-                    print(key, " is not in spec ", spec.scan_value)
                     validKey = False
                     break
             if validKey:
@@ -1536,7 +1544,8 @@ class CalibrationEditor(QMainWindow):
     
     def handle_point_submission_request(self, request):
         '''
-        Reads the emitted values and forwards them, so that they are added to the calibration
+        Receive a point submitted from the scan-analysis view and add it to the current
+        calibration dataset.
         '''
         
         for key, entry in request.items():
@@ -1550,13 +1559,16 @@ class CalibrationEditor(QMainWindow):
 
 
 
+
+
+
+
         
 
-
+#-----------------------------------------
+# Definition of the PlotDefinitionWidget, which is used to define the plots in the GUI
+#-----------------------------------------
             
-    
-
-
 
 class PlotDefinitionWidget(QWidget):
 
