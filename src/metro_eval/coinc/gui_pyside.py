@@ -6,6 +6,7 @@ interactive histogram and 2D coincidence plots.
 """
 
 import os
+import re
 import sys
 
 from PySide6.QtGui import QIcon
@@ -58,6 +59,8 @@ from metro_eval.coinc.calibration_manager import (list_calibrations,
                                                   get_calibration_filepath, 
                                                   plot_calibration_pg)
 from metro_eval.coinc.models import MODELS
+from metro_eval.coinc.validation import parse_coincidence_key, validate_overlap_params
+from metro_eval.coinc.workflow import CoincidenceWorkflow
 
 
 class MainWindow(QMainWindow):
@@ -79,10 +82,11 @@ class MainWindow(QMainWindow):
         self.data_calibrated = None
         self.data_current = None
 
+        self.workflow = CoincidenceWorkflow()
         self.last_directory = ""
 
         # The CalibrationEditor window
-        self.calibration_editor=None
+        self.calibration_editor = None
 
         # Status keys and initial values
         self.status = {
@@ -102,6 +106,19 @@ class MainWindow(QMainWindow):
         ]
 
         self.build_ui()
+
+    def _sync_workflow_from_gui(self):
+        self.workflow.raw = self.data_raw
+        self.workflow.postproc = self.data_postproc
+        self.workflow.calibrated = self.data_calibrated
+        self.workflow.current = self.data_current
+        self.workflow.coincidence_key = self.status.get("Coincidence")
+
+    def _sync_gui_from_workflow(self):
+        self.data_raw = self.workflow.raw
+        self.data_postproc = self.workflow.postproc
+        self.data_calibrated = self.workflow.calibrated
+        self.data_current = self.workflow.current
 
     def build_ui(self):
         """Construct the complete main-window layout for the coincidence analysis workflow."""
@@ -428,52 +445,84 @@ class MainWindow(QMainWindow):
             self.last_directory,
             "All Files (*.*)"
         )
-        
 
-        if file_path:
-            self.file_path = list(file_path)
-            label=""
-            for file in file_path:
-                head, tail = os.path.split(file)
-                label += tail+", "
-            label = label[:-2]
-            self.file_label.setText(label)
-
-            # Use the directory of the last loaded file as the start directory
-            # for the next browsing
-            self.last_directory = head
-
-            # Populate the dropdown with the keys from the files
-            keys=self.load_keys_from_file()
+        if not file_path:
+            self.file_path = None
+            self.file_label.setText("No file selected")
             self.dataset_combo.clear()
-            self.dataset_combo.addItems(keys)
+            return
+
+        self.file_path = list(file_path)
+        label = ""
+        head = ""
+        for file in file_path:
+            head, tail = os.path.split(file)
+            label += tail + ", "
+        label = label[:-2]
+        self.file_label.setText(label)
+
+        # Use the directory of the last loaded file as the start directory
+        # for the next browsing
+        self.last_directory = head
+
+        # Populate the dropdown with the keys from the files
+        keys = self.load_keys_from_file()
+        self.dataset_combo.clear()
+        self.dataset_combo.addItems(keys)
 
     def load_data(self):
         '''
-        
+
         Read the data of the selected files, from the selected coincidence
         key into self.data
         Also store it in self.current_data and self.data_postproc
-        
+
         '''
+        if not self.file_path:
+            QMessageBox.warning(
+                self,
+                "No file selected",
+                "Please select at least one file before loading data.",
+            )
+            return
+
+        key = self.dataset_combo.currentText().strip()
+        if not key or key == "Select key":
+            QMessageBox.warning(
+                self,
+                "No coincidence key selected",
+                "Please select a valid coincidence key from the dropdown.",
+            )
+            return
+
         arrays = []
-        key = self.dataset_combo.currentText()
-        
-        # Reads the data from the selected files under key, 
-        # which is selected in the combobox. 
+
+        # Reads the data from the selected files under key,
+        # which is selected in the combobox.
         for path in self.file_path:
             arr = read_coinc(path, key)
+            if arr is None:
+                self.logger.warning(f"Coincidence key {key!r} not found in {path}.")
+                continue
             arrays.append(arr)
+
+        if not arrays:
+            QMessageBox.warning(
+                self,
+                "No usable data found",
+                f"The selected key {key!r} could not be read from the chosen files.",
+            )
+            return
+
         self.data_raw = np.concatenate(arrays, axis=0)
-        
+        self.workflow.set_loaded_data(self.data_raw, key)
+
         # Update data
-        self.data_current = self.data_raw
-        self.data_postproc = self.data_raw
-        self.data_calibrated = self.data_raw
+        self._sync_gui_from_workflow()
 
         # Update status
         self.status_reset_upon_loading()
-        self.set_status("File(s)",self.file_label.text())
+        self.set_status("File(s)", self.file_label.text())
         self.set_status("Coincidence", key)
         self.on_array_change()
 
@@ -484,13 +533,26 @@ class MainWindow(QMainWindow):
     #
 
     def apply_overlap(self):
-        overlap_params = self.read_manual_overlap_params()
+        try:
+            overlap_params = self.read_manual_overlap_params()
+        except ValueError as exc:
+            QMessageBox.warning(
+                self,
+                "Invalid overlap values",
+                str(exc),
+            )
+            self.logger.warning(f"Manual overlap rejected: {exc}")
+            return
+
         self.apply_overlap_core(overlap_params)
 
     def reset_overlap(self):
-        self.data_current=self.data_raw
-        self.data_postproc = self.data_raw
-        self.data_calibrated = self.data_raw
+        if self.data_raw is None:
+            self.logger.warning("No raw data loaded; overlap reset has no effect.")
+            return
+
+        self.workflow.reset_to_raw()
+        self._sync_gui_from_workflow()
         self.on_array_change()
         self.logger.info("Data was changed to raw.")
         self.set_status("Bunch overlap", "N/A")
@@ -541,21 +603,30 @@ class MainWindow(QMainWindow):
         if self.data_current is None:
             self.logger.warning("No data loaded, nothing to calibrate.")
             return
-        
-        self.calibration = self.get_selected_calibration()
+
+        calibration = self.get_selected_calibration()
+        if calibration is None:
+            return
+
+        self.calibration = calibration
         self.logger.info(self.calibration.bunch_overlap_params)
         overlap_params = self.calibration.bunch_overlap_params
         self.apply_overlap_core(overlap_params=overlap_params)
         self.calibrate()
-        self.set_status("Calibrated", "Yes, "+self.calibration.generate_filename())
+        self.set_status("Calibrated", "Yes, " + self.calibration.generate_filename())
             
     def remove_calibration(self):
         '''
         Sets self.calibration=None and changes data_current to data_raw
         '''
-        self.data_postproc = self.data_raw
-        self.data_calibrated = self.data_raw
-        self.data_current = self.data_raw
+        if self.data_raw is None:
+            self.logger.warning("No raw data loaded; no calibration removal applied.")
+            return
+
+        self.workflow.postproc = self.data_raw.copy()
+        self.workflow.calibrated = self.data_raw.copy()
+        self.workflow.current = self.data_raw.copy()
+        self._sync_gui_from_workflow()
         self.on_array_change()
 
         self.set_status("Calibrated", "N/A")
@@ -633,12 +704,13 @@ class MainWindow(QMainWindow):
             filters.append((col_idx, mask))
         
         # set the current data
-        self.data_current=data
+        self.workflow.current = data
+        self._sync_gui_from_workflow()
 
         # For displaying the filters:
         if filters == []:
             filters = [()]
-        
+
         self.set_status("Masks applied", filters)
         self.logger.info(f"Masks applied {filters}")
 
@@ -773,22 +845,46 @@ class MainWindow(QMainWindow):
         Read the manual overlap values from the GUI fields and convert them to the
         dictionary format expected by the overlap processing function.
         '''
-        
-        overlap_params = {}
-        # Read strings. Transform to floats.
-        for key in self.overlap_lineEdit.keys(): # Uses the keys specified before
-            try:
-                overlap_params[key] = float(self.overlap_lineEdit[key].text().strip())
-            except ValueError:
-                print("Select values for all boxes!")
 
-        # Also save the values in the format used by the calibration, so that both
-        # can use them same overlap function.
-        overlap_params["ROI_first"] = [overlap_params["roi_first_min"], overlap_params["roi_first_max"]]
-        overlap_params["ROI_last"] = [overlap_params["roi_last_min"], overlap_params["roi_last_max"]]
-        overlap_params["repetition_time"] = overlap_params["reptime"]
+        expected_keys = [
+            "reptime",
+            "roi_first_min",
+            "roi_first_max",
+            "roi_last_min",
+            "roi_last_max",
+        ]
 
-        return overlap_params
+        missing = []
+        for key in expected_keys:
+            widget = self.overlap_lineEdit.get(key)
+            if widget is None:
+                missing.append(key)
+                continue
+
+            text = widget.text().strip()
+            if text == "":
+                missing.append(key)
+                continue
+
+        if missing:
+            raise ValueError(
+                "Please fill all overlap fields before applying the correction: "
+                + ", ".join(missing)
+            )
+
+        overlap_params = {
+            "repetition_time": float(self.overlap_lineEdit["reptime"].text().strip()),
+            "ROI_first": [
+                float(self.overlap_lineEdit["roi_first_min"].text().strip()),
+                float(self.overlap_lineEdit["roi_first_max"].text().strip()),
+            ],
+            "ROI_last": [
+                float(self.overlap_lineEdit["roi_last_min"].text().strip()),
+                float(self.overlap_lineEdit["roi_last_max"].text().strip()),
+            ],
+        }
+
+        return validate_overlap_params(overlap_params)
 
 
 
@@ -797,21 +893,49 @@ class MainWindow(QMainWindow):
         Apply a bunch-overlap correction to the currently loaded raw data and move the
         working array into the postprocessed state.
         '''
-        
-        roi_first = overlap_params["ROI_first"]
-        roi_last = overlap_params["ROI_last"]
+        if self.data_raw is None:
+            self.logger.warning("No raw data loaded; overlap correction cannot be applied.")
+            return
+
+        if not isinstance(overlap_params, dict):
+            self.logger.warning("Overlap parameters were not provided in dictionary form.")
+            return
+
+        roi_first = overlap_params.get("ROI_first")
+        roi_last = overlap_params.get("ROI_last")
+        repetition_time = overlap_params.get("repetition_time")
+
+        if not all(isinstance(value, (list, tuple)) and len(value) == 2 for value in (roi_first, roi_last)):
+            self.logger.warning("Invalid ROI ranges for overlap correction.")
+            return
+
+        if repetition_time is None:
+            self.logger.warning("Missing repetition time for overlap correction.")
+            return
 
         # Some coincidence keys include photons, which need special handling in the
         # overlap function. We therefore derive the photon count from the key.
-        _, p_amount = self.EP_number_from_string(self.status['Coincidence'])
-        
+        coincidence_key = self.status.get('Coincidence', 'E')
+        try:
+            key = parse_coincidence_key(coincidence_key)
+            p_amount = key.n_photons
+        except ValueError:
+            self.logger.warning(f"Invalid coincidence key {coincidence_key!r}; using zero photons for overlap correction.")
+            p_amount = 0
+
         # Set the postprocessed dataset as the active working array.
-        self.data_postproc = overlap(self.data_raw, overlap_params['repetition_time'], 
-                                     roi_first, roi_last, nPhotons=p_amount)
-        self.data_calibrated = self.data_postproc
-        self.data_current = self.data_postproc
-        
-        
+        self.workflow.raw = self.data_raw
+        self.workflow.coincidence_key = self.status.get("Coincidence", "E")
+        self.workflow.apply_overlap(
+            {
+                "repetition_time": repetition_time,
+                "ROI_first": roi_first,
+                "ROI_last": roi_last,
+            },
+            key=self.workflow.coincidence_key,
+        )
+        self._sync_gui_from_workflow()
+
         # Update status
         self.set_status("Bunch overlap", True)
         self.set_status("Masks applied", "N/A")
@@ -872,8 +996,9 @@ class MainWindow(QMainWindow):
 
         # Keep a separate calibrated array while exposing the calibrated version as the
         # currently active working dataset.
-        self.data_calibrated = result
-        self.data_current = self.data_calibrated
+        self.workflow.calibrated = result
+        self.workflow.current = result
+        self._sync_gui_from_workflow()
 
         # Update status
         self.on_array_change()
@@ -882,19 +1007,23 @@ class MainWindow(QMainWindow):
         self.logger.info("Data calibrated")
 
 
-    def get_selected_calibration(self) -> Calibration:
+    def get_selected_calibration(self) -> Calibration | None:
         '''
         Read the selected calibration name from the dropdown and load the matching
         calibration JSON into a Calibration object.
         '''
-        
+
         name = self.calibration_combo.currentText()
         if name == "Select calibration":
             self.logger.error("Choose valid calibration!")
-            return 
-        calibration = Calibration(
-            load_calibration(filename=name)
-        )
+            QMessageBox.warning(
+                self,
+                "No calibration selected",
+                "Please select a calibration before applying or editing it.",
+            )
+            return None
+
+        calibration = Calibration(load_calibration(filename=name))
         return calibration
     
     #
@@ -907,26 +1036,8 @@ class MainWindow(QMainWindow):
         Deduce the number of electron and photon columns implied by a coincidence key
         such as "E", "EE", "2E1P", or "P".
         '''
-        if not isProperKey(string):
-            raise ValueError(f"Expected regular coincidence string, got: {string}")
-        if string.isalpha():
-            # If the string is only letters, we can just count the letters
-            e_amount = string.count("E")
-            p_amount = string.count("P")
-        else:
-            # If the string contains numbers, we need to parse them. The format is expected to be like "2E1P" or "3E" or "1P", etc.
-            e_index = string.find("E")
-            p_index = string.find("P")
-            if e_index != -1:
-                try:
-                    e_amount = int(string[:e_index])
-                    if p_index == -1:
-                        p_amount = 0
-                    else:
-                        p_amount = int(string[e_index+1:p_index])
-                except ValueError:
-                    print(f"Warning: Could not evaluate {string}.")
-        return e_amount, p_amount
+        key = parse_coincidence_key(string)
+        return key.electrons, key.photons
 
 
 
