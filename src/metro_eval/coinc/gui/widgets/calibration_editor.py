@@ -17,13 +17,15 @@ from PySide6.QtWidgets import (
 )
 
 from PySide6.QtGui import QIcon
-from metro_eval.coinc.calibration_manager import (Calibration, 
-                                                  save_calibration,
-                                                  get_calibration_filepath, 
-                                                  plot_calibration_pg)
-from metro_eval.coinc.file_handler import ScanData, ScanSpectrum, read_scan
-from metro_eval.coinc.widgets.plot_workspace import PlotWorkspace
-from metro_eval.coinc.models import MODELS
+from metro_eval.coinc.calibration.calibration_model import Calibration
+from metro_eval.coinc.calibration.calibration_manager import (
+    save_calibration,
+    get_calibration_filepath,
+    plot_calibration_pg,
+)
+from metro_eval.coinc.io.file_handler import ScanData, ScanSpectrum, read_scan
+from metro_eval.coinc.gui.widgets.plot_workspace import PlotWorkspace
+from metro_eval.coinc.calibration.models import MODELS
 import pyqtgraph as pg
 from datetime import datetime
 import numpy as np

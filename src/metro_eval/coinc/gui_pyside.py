@@ -34,21 +34,22 @@ import numpy as np
 import logging
 
 
-from metro_eval.coinc.file_handler import get_keys, read_coinc
+from metro_eval.coinc.io.file_handler import get_keys, read_coinc
 from metro_eval.coinc.plot_functions import hist_1D
 from metro_eval.coinc.mask_functions import mask_by_column
-from metro_eval.coinc.widgets.log_widget import setup_gui_logging, LogWidget
-from metro_eval.coinc.calibration_manager import (list_calibrations, 
-                                                  load_calibration, 
-                                                  Calibration
-                                                  )
+from metro_eval.coinc.gui.widgets.log_widget import setup_gui_logging, LogWidget
+from metro_eval.coinc.calibration.calibration_manager import (
+    list_calibrations,
+    load_calibration,
+)
+from metro_eval.coinc.calibration.calibration_model import Calibration
 
-from metro_eval.coinc.validation import parse_coincidence_key, validate_overlap_params
-from metro_eval.coinc.workflow import CoincidenceWorkflow
-from metro_eval.coinc.widgets.calibration_editor import CalibrationEditor
-from metro_eval.coinc.widgets.plot_definition import PlotDefinitionWidget
-from metro_eval.coinc.widgets.mask_selection import MaskSelectionWidget
-from metro_eval.coinc.widgets.plot_workspace import PlotWorkspace
+from metro_eval.coinc.core.validation import parse_coincidence_key, validate_overlap_params
+from metro_eval.coinc.core.workflow import CoincidenceWorkflow
+from metro_eval.coinc.gui.widgets.calibration_editor import CalibrationEditor
+from metro_eval.coinc.gui.widgets.plot_definition import PlotDefinitionWidget
+from metro_eval.coinc.gui.widgets.mask_selection import MaskSelectionWidget
+from metro_eval.coinc.gui.widgets.plot_workspace import PlotWorkspace
 
 class MainWindow(QMainWindow):
     """Main Qt window for loading, processing, and plotting coincidence data.

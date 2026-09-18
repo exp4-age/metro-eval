@@ -2,11 +2,7 @@
 Handle files
 '''
 
-import os 
-import h5py
 import numpy as np
-import matplotlib.pyplot as plt
-
 
 def generate_array(rows=100000, cols=4, max_value = 3000):
     arr = np.random.rand(rows, cols) * max_value

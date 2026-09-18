@@ -4,8 +4,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from metro_eval.coinc.postprocessing import overlap
-from metro_eval.coinc.validation import parse_coincidence_key
+from ..processing.postprocessing import overlap
+from .validation import parse_coincidence_key
 
 
 @dataclass

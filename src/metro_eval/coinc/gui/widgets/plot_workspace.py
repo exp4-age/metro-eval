@@ -5,7 +5,7 @@ from metro_eval.coinc.analysis_pages import (SignalPage,
                                              CoincmapPage, 
                                              CalibrationViewPage, 
                                              ScanAnalysisPage)
-from metro_eval.coinc.calibration_manager import Calibration
+from metro_eval.coinc.calibration.calibration_model import Calibration
 
 
 

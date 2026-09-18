@@ -8,8 +8,8 @@ The package is organized around a small set of responsibilities:
 - GUI widgets and application windows
 """
 
-from metro_eval.coinc.validation import CoincidenceKey, parse_coincidence_key, validate_overlap_params
-from metro_eval.coinc.workflow import CoincidenceWorkflow
+from metro_eval.coinc.core.validation import CoincidenceKey, parse_coincidence_key, validate_overlap_params
+from metro_eval.coinc.core.workflow import CoincidenceWorkflow
 
 __all__ = [
     "CoincidenceKey",
