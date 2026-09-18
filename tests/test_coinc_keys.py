@@ -28,6 +28,27 @@ def test_sync_gui_from_workflow_does_not_rebuild_ui(monkeypatch):
     window.workflow.set_loaded_data(np.array([[1, 2, 3], [4, 5, 6]]), "2E1P")
     window._sync_gui_from_workflow()
 
-    assert window.data_raw is not None
-    assert window.data_current is not None
+    assert window.workflow.raw is not None
+    assert window.workflow.current is not None
+    assert not hasattr(window, "data_raw")
+    assert not hasattr(window, "data_current")
     assert calls["count"] == 1
+
+
+def test_workflow_is_the_only_data_state():
+    window = MainWindow()
+    raw = np.array([[1, 2, 3], [4, 5, 6]])
+    window.workflow.set_loaded_data(raw, "2E1P")
+
+    assert window.workflow.raw is not None
+    assert window.workflow.postproc is not None
+    assert window.workflow.calibrated is not None
+    assert window.workflow.current is not None
+    assert window.workflow.raw is window.workflow.postproc or window.workflow.postproc.shape == window.workflow.raw.shape
+    assert window.workflow.raw is window.workflow.calibrated or window.workflow.calibrated.shape == window.workflow.raw.shape
+    assert window.workflow.raw is window.workflow.current or window.workflow.current.shape == window.workflow.raw.shape
+
+    assert not hasattr(window, "data_raw")
+    assert not hasattr(window, "data_postproc")
+    assert not hasattr(window, "data_calibrated")
+    assert not hasattr(window, "data_current")

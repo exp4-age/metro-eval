@@ -28,6 +28,7 @@ class QtLogHandler(logging.Handler):
         self.emitter.message_received.emit(msg)
 
 class LogWidget(QWidget):
+    """Qt widget for streaming application log messages to the GUI."""
 
     def __init__(self):
         super().__init__()

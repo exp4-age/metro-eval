@@ -17,7 +17,13 @@ class CoincidenceWorkflow:
     calibrated: np.ndarray | None = None
     current: np.ndarray | None = None
     coincidence_key: str | None = None
-    status: dict[str, object] = field(default_factory=lambda: {"Bunch overlap": "N/A", "Calibrated": "N/A"})
+    status: dict[str, object] = field(default_factory=lambda: {
+        "Bunch overlap": "N/A",
+        "Calibrated": "N/A",
+        "Masks applied": "N/A",
+        "Data shape (raw)": "N/A",
+        "Data shape (current)": "N/A",
+    })
 
     def clear(self) -> None:
         self.raw = None
@@ -25,7 +31,17 @@ class CoincidenceWorkflow:
         self.calibrated = None
         self.current = None
         self.coincidence_key = None
-        self.status = {"Bunch overlap": "N/A", "Calibrated": "N/A"}
+        self.status = {
+            "Bunch overlap": "N/A",
+            "Calibrated": "N/A",
+            "Masks applied": "N/A",
+            "Data shape (raw)": "N/A",
+            "Data shape (current)": "N/A",
+        }
+
+    def update_status(self, key: str, value: object) -> None:
+        """Persist a UI/status update in the workflow state for downstream GUIs."""
+        self.status[key] = value
 
     def set_loaded_data(self, data: np.ndarray, key: str | None = None) -> None:
         if data is None:
