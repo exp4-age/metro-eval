@@ -1,4 +1,4 @@
-from metro_eval.coinc.gui import start
+from metro_eval.coinc.gui_pyside import start
 
 
 def main(args):

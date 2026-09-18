@@ -36,9 +36,8 @@ import logging
 
 from metro_eval.coinc.file_handler import get_keys, read_coinc
 from metro_eval.coinc.plot_functions import hist_1D
-from metro_eval.coinc.postprocessing import overlap
 from metro_eval.coinc.mask_functions import mask_by_column
-from metro_eval.coinc.log_widget import setup_gui_logging, LogWidget
+from metro_eval.coinc.widgets.log_widget import setup_gui_logging, LogWidget
 from metro_eval.coinc.calibration_manager import (list_calibrations, 
                                                   load_calibration, 
                                                   Calibration
@@ -52,6 +51,13 @@ from metro_eval.coinc.widgets.mask_selection import MaskSelectionWidget
 from metro_eval.coinc.widgets.plot_workspace import PlotWorkspace
 
 class MainWindow(QMainWindow):
+    """Main Qt window for loading, processing, and plotting coincidence data.
+
+    The window owns the user interface and orchestration logic only. The scientific
+    dataset and its transformation state live in ``CoincidenceWorkflow`` and are
+    updated through the workflow object rather than duplicated GUI fields.
+    """
+
     def __init__(self):
         app = QApplication.instance()
         if app is None:
@@ -95,12 +101,8 @@ class MainWindow(QMainWindow):
         self.build_ui()
 
     def _sync_workflow_from_gui(self):
-        """Keep the workflow metadata aligned with the GUI status display."""
+        """Keep workflow metadata aligned with the GUI-selected coincidence key."""
         self.workflow.coincidence_key = self.status.get("Coincidence")
-
-    def _sync_gui_from_workflow(self):
-        """The workflow is the authoritative dataset state; no GUI mirror remains."""
-        return None
 
     def build_ui(self):
         """Construct the complete main-window layout for the coincidence analysis workflow."""
@@ -421,6 +423,7 @@ class MainWindow(QMainWindow):
     #
 
     def browse_file(self):
+        """Open a file chooser and populate the available coincidence keys."""
         file_path, _ = QFileDialog.getOpenFileNames(
             self,
             "Select file",
@@ -455,9 +458,9 @@ class MainWindow(QMainWindow):
     def load_data(self):
         '''
 
-        Read the data of the selected files, from the selected coincidence
-        key into self.data
-        Also store it in self.current_data and self.data_postproc
+        Read the selected data key from disk and store it in the canonical workflow
+        state. The GUI does not keep separate scientific arrays; it only reflects
+        the information exposed by ``CoincidenceWorkflow``.
 
         '''
         if not self.file_path:
@@ -498,16 +501,15 @@ class MainWindow(QMainWindow):
 
         self.workflow.set_loaded_data(np.concatenate(arrays, axis=0), key)
 
-        # Update data
-        self._sync_gui_from_workflow()
-
         # Update status
         self.status_reset_upon_loading()
         self.set_status("File(s)", self.file_label.text())
         self.set_status("Coincidence", key)
         self.on_array_change()
 
-        self.logger.info(f"Coincidence {key} from file(s) {self.file_label.text()} loaded!")
+        self._publish_workflow_status("File(s)", self.file_label.text(), 
+                        message=f"Coincidence {key} from file(s) {self.file_label.text()} loaded!")
+        self._publish_workflow_status("Coincidence", key)
 
     #
     # Manual bunch overlap
@@ -533,12 +535,10 @@ class MainWindow(QMainWindow):
             return
 
         self.workflow.reset_to_raw()
-        self._sync_gui_from_workflow()
         self.on_array_change()
-        self.logger.info("Data was changed to raw.")
-        self.set_status("Bunch overlap", "N/A")
-        self.set_status("Calibrated", "N/A")
-        self.set_status("Masks applied", "N/A")
+        self._publish_workflow_status("Bunch overlap", "N/A", message="Data was changed to raw.")
+        self._publish_workflow_status("Calibrated", "N/A")
+        self._publish_workflow_status("Masks applied", "N/A")
 
     #
     # Calibration utility
@@ -577,9 +577,11 @@ class MainWindow(QMainWindow):
 
     def apply_calibration(self):
         '''
-        Uses the calibration selected in the Combobox to calibrate the raw data. Precisely,
-        this means we take self.data_raw, apply the bunch_overlap and apply the calibration.
-        We set self.data_postproc, self.data_calibrated and self.data_current
+        Apply the selected calibration to the current workflow state.
+
+        The raw dataset remains intact in the workflow, while the postprocessed and
+        calibrated arrays are updated in place before exposing the calibrated result as
+        the active working array.
         '''
         if self.workflow.current is None:
             self.logger.warning("No data loaded, nothing to calibrate.")
@@ -594,11 +596,14 @@ class MainWindow(QMainWindow):
         overlap_params = self.calibration.bunch_overlap_params
         self.apply_overlap_core(overlap_params=overlap_params)
         self.calibrate()
-        self.set_status("Calibrated", "Yes, " + self.calibration.generate_filename())
+        self._publish_workflow_status("Calibrated", 
+                                      "Yes, " + self.calibration.generate_filename(), 
+                                      message=f"Calibration applied: {self.calibration.generate_filename()}")
             
     def remove_calibration(self):
         '''
-        Sets self.calibration=None and changes data_current to data_raw
+        Reset the active working array back to the raw dataset and clear the
+        calibration status in the workflow.
         '''
         if self.workflow.raw is None:
             self.logger.warning("No raw data loaded; no calibration removal applied.")
@@ -607,11 +612,9 @@ class MainWindow(QMainWindow):
         self.workflow.postproc = self.workflow.raw.copy()
         self.workflow.calibrated = self.workflow.raw.copy()
         self.workflow.current = self.workflow.raw.copy()
-        self._sync_gui_from_workflow()
         self.on_array_change()
 
-        self.set_status("Calibrated", "N/A")
-        self.logger.info("data is changed to raw data")
+        self._publish_workflow_status("Calibrated", "N/A", message="data is changed to raw data")
                     
     def handle_histogram_request(self, request) -> None:
         '''
@@ -665,9 +668,8 @@ class MainWindow(QMainWindow):
 
     def handle_masking_request(self, request) -> None:
         '''
-        Is called by the "Apply" Button in the Maksing Box.
-        Applies the selected filters to self.data_calibrated and 
-        stores the result in self.data_current.
+        Apply the selected column filters to the calibrated data and store the result
+        in the workflow's active current array.
         '''
         
         if self.workflow.current is None:
@@ -686,14 +688,12 @@ class MainWindow(QMainWindow):
         
         # set the current data
         self.workflow.current = data
-        self._sync_gui_from_workflow()
 
         # For displaying the filters:
         if filters == []:
             filters = [()]
 
-        self.set_status("Masks applied", filters)
-        self.logger.info(f"Masks applied {filters}")
+        self._publish_workflow_status("Masks applied", filters, message=f"Masks applied {filters}")
 
         # Array changed
         self.on_array_change()
@@ -711,12 +711,8 @@ class MainWindow(QMainWindow):
 
     
     def status_reset_upon_loading(self) -> None:
-        '''
-        When new data is loaded, the earlier status values are cleared.
-        FUNCTION NOT NECESSARY??
-        '''
-        
-        for key in self.status.keys():
+        """Clear the visible status labels before loading a new dataset."""
+        for key in self.status:
             self.set_status(key, "N/A")
  
 
@@ -741,9 +737,7 @@ class MainWindow(QMainWindow):
         
     def on_array_change(self):
         '''
-        This function should be called whenever the current workflow data is updated, to
-        refresh status labels and other UI state.
-
+        Refresh the visible status panel whenever the workflow's current dataset changes.
         '''
 
         if self.workflow.current is None:
@@ -752,8 +746,8 @@ class MainWindow(QMainWindow):
         self.logger.info("The current data was changed.")
 
         # Update status labels
-        self.set_status("Data shape (raw)", self.workflow.raw.shape)
-        self.set_status("Data shape (current)", self.workflow.current.shape)
+        self._publish_workflow_status("Data shape (raw)", self.workflow.raw.shape)
+        self._publish_workflow_status("Data shape (current)", self.workflow.current.shape)
         
 
             
@@ -781,12 +775,6 @@ class MainWindow(QMainWindow):
 
         if message is not None:
             self.logger.info(message)
-
-    def _sync_status_from_workflow(self):
-        """Mirror the workflow status info into the visible status panel."""
-        for key in ("Bunch overlap", "Calibrated", "Masks applied", "Data shape (raw)", "Data shape (current)"):
-            if key in self.workflow.status:
-                self._publish_workflow_status(key, self.workflow.status[key])
 
     def set_status(self, key, value):
         '''
@@ -915,7 +903,6 @@ class MainWindow(QMainWindow):
             p_amount = 0
 
         # Set the postprocessed dataset as the active working array.
-        self.workflow.raw = self.workflow.raw
         self.workflow.coincidence_key = self.status.get("Coincidence", "E")
         self.workflow.apply_overlap(
             {
@@ -925,15 +912,11 @@ class MainWindow(QMainWindow):
             },
             key=self.workflow.coincidence_key,
         )
-        self._sync_gui_from_workflow()
 
         # Update status
-        self.set_status("Bunch overlap", True)
-        self.set_status("Masks applied", "N/A")
+        self._publish_workflow_status("Bunch overlap", True, message="Overlap parameters applied!")
+        self._publish_workflow_status("Masks applied", "N/A")
         self.on_array_change()
-
-        # Log message
-        self.logger.info("Overlap parameters applied!")
     
     #
     # Calibration helper functions
@@ -989,7 +972,6 @@ class MainWindow(QMainWindow):
         # currently active working dataset.
         self.workflow.calibrated = result
         self.workflow.current = result
-        self._sync_gui_from_workflow()
 
         # Update status
         self.on_array_change()

@@ -26,7 +26,8 @@ def test_sync_gui_from_workflow_does_not_rebuild_ui(monkeypatch):
     assert calls["count"] == 1
 
     window.workflow.set_loaded_data(np.array([[1, 2, 3], [4, 5, 6]]), "2E1P")
-    window._sync_gui_from_workflow()
+    assert not hasattr(window, "_sync_gui_from_workflow")
+    assert not hasattr(window, "_sync_status_from_workflow")
 
     assert window.workflow.raw is not None
     assert window.workflow.current is not None
