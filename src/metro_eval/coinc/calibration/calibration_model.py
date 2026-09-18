@@ -9,12 +9,37 @@ from __future__ import annotations
 
 from dataclasses import dataclass, fields
 from typing import Any, Dict
+import warnings
 
 import numpy as np
 from matplotlib.figure import Figure
-from scipy.odr import Model, ODR, RealData
 from scipy.optimize import curve_fit
 from scipy.stats import norm
+
+# Prefer the maintained ODR backend when it is available. SciPy's old
+# ``scipy.odr`` surface is deprecated in newer releases and we do not want the
+# deprecation warning to appear during normal module import.
+try:
+    from odrpack import odr as odrpack_odr
+except ImportError:  # pragma: no cover - optional dependency
+    odrpack_odr = None
+
+Model = ODR = RealData = None
+
+# Keep a legacy fallback for environments that still ship the older SciPy API.
+# Importing it here is safe because we only suppress the warning and continue to
+# load the module normally; the deprecated path is still only used if the user
+# actually selects the ODR method.
+try:
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=r"`scipy\.odr` is deprecated.*",
+            category=DeprecationWarning,
+        )
+        from scipy.odr import Model, ODR, RealData
+except ImportError:  # pragma: no cover - compatibility fallback for SciPy 1.17+
+    Model = ODR = RealData = None
 
 from . import models
 
@@ -115,6 +140,51 @@ class Calibration:
         if self.x_values.size == 0 or self.y_values.size == 0:
             raise ValueError("Calibration dictionary must contain calibration points.")
 
+    def _fit_odr(self, model_func, x_values, y_values, x_err, y_err, p0, **kwargs):
+        """Fit a calibration model using the best available ODR backend.
+
+        The project prefers ``odrpack`` because it is the maintained replacement
+        for the deprecated SciPy ``odr`` API. If that backend is missing, we keep
+        the older SciPy implementation as a compatibility fallback so existing
+        environments still continue to work.
+        """
+        if odrpack_odr is not None:
+            # ``odrpack`` expects the model signature ``f(x, beta)`` and uses
+            # inverse-variance weights for each coordinate, which matches the
+            # calibration workflow here well enough to keep the same semantics.
+            def model_odr(x, beta):
+                return model_func(x, *beta)
+
+            weight_x = None if x_err is None else 1.0 / np.asarray(x_err, dtype=float) ** 2
+            weight_y = None if y_err is None else 1.0 / np.asarray(y_err, dtype=float) ** 2
+            return odrpack_odr.odr_fit(
+                model_odr,
+                np.asarray(x_values, dtype=float),
+                np.asarray(y_values, dtype=float),
+                beta0=np.asarray(p0 if p0 is not None else np.ones(3), dtype=float),
+                weight_x=weight_x,
+                weight_y=weight_y,
+                **kwargs,
+            )
+
+        # Older SciPy installations still expose the legacy ``scipy.odr`` API.
+        # We only end up here if the user explicitly requests ODR and the modern
+        # backend is unavailable, so a clear runtime error is preferable to a
+        # silent failure.
+        if Model is None or ODR is None or RealData is None:
+            raise RuntimeError(
+                "ODR calibration fitting requires odrpack or SciPy's legacy ODR support. "
+                "Install odrpack or choose a non-ODR fitting method."
+            )
+
+        def model_odr(params, x):
+            return model_func(x, *params)
+
+        model = Model(model_odr)
+        data = RealData(x_values, y_values, sx=x_err, sy=y_err)
+        odr = ODR(data, model, beta0=p0 or np.ones(3), **kwargs)
+        return odr.run()
+
     def get_conversion(
         self,
         model_func=None,
@@ -144,15 +214,18 @@ class Calibration:
             self.model_func = model_func
 
         if method == "odr" and (x_err is not None or y_err is not None):
-            def model_odr(params, x):
-                return model_func(x, *params)
-
-            model = Model(model_odr)
-            data = RealData(x_values, y_values, sx=x_err, sy=y_err)
-            odr = ODR(data, model, beta0=p0 or np.ones(3), **kwargs)
-            output = odr.run()
+            output = self._fit_odr(
+                model_func,
+                x_values,
+                y_values,
+                x_err,
+                y_err,
+                p0,
+                **kwargs,
+            )
             if verbalize:
-                print("odr fit performed!")
+                backend_name = "odrpack" if odrpack_odr is not None else "odr"
+                print(f"{backend_name} fit performed!")
             if set_values:
                 self.popt = output.beta
                 self.perr = output.sd_beta
