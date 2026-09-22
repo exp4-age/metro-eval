@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, InitVar
-from functools import Placeholder, partial
+from functools import partial
 from pathlib import Path
 import h5py
 import numpy as np
@@ -15,34 +15,9 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
 __all__ = [
-    "load_runs",
     "MetroRun",
+    "load_runs",
 ]
-
-
-def glob_runs(path: Path):
-    for num_digits in range(1, 5):
-        pattern1 = "".join(["[0-9]"] * num_digits) + ".h5"
-        pattern2 = "".join(["[0-9]"] * num_digits) + "_*.h5"
-
-        # get matching files
-        matches = list(path.glob(pattern1)) + list(path.glob(pattern2))
-
-        if len(matches) == 0:
-            continue
-
-        for match in matches:
-            yield match.name[:num_digits], match
-
-
-def load_runs(path: str | Path | None = None):
-    path = Path.cwd() if path is None else Path(path)
-
-    run_dict = {}
-    for num, file_path in glob_runs(path):
-        run_dict[num] = MetroRun(file_path)
-
-    return run_dict
 
 
 @dataclass(frozen=True)
@@ -77,8 +52,6 @@ class MetroRun:
     ----------
     path : Path
         Path to the hdf5 file containing the metro data
-    channels : frozenset[str]
-        Data channels in the hdf5 file (e.g. "dld_rd#raw" or "2E1P")
     scans : list[str]
         Scans in the hdf5 file with names "0", "1", etc.
     steps : list[str]
@@ -89,9 +62,6 @@ class MetroRun:
 
     run: InitVar[str | Path | tuple[str, Path] | tuple[str, str]]
     path: Path = field(init=False)
-    channels: frozenset[str] = field(init=False)
-    scans: list[int] = field(init=False)
-    steps: list[str] = field(init=False)
 
     def __post_init__(self, run):
         if isinstance(run, str):
@@ -154,133 +124,79 @@ class MetroRun:
             errmsg = f"Invalid run specification: {run}"
             raise ValueError(errmsg)
 
-        # scan the hdf5 file assuming the metro2hdf file structure
-        # and create lists of available channels, scans and steps
-        channels, scans, steps = self._scan()
-        object.__setattr__(self, "channels", channels)
-        object.__setattr__(self, "scans", scans)
-        object.__setattr__(self, "steps", steps)
-
-    def _scan(self):
-        channels, scans, steps = [], [], []
+    def list_scans(self) -> list[int]:
+        scans = []
 
         with h5py.File(self.path, "r") as h5f:
             # metro scans are stored by index and should start
-            # from 0, anything non matching objects will be ignored
-            for scan_idx in range(len(h5f)):
-                scan_key = str(scan_idx)
+            # from 0, any non matching objects will be ignored
+            for idx in range(len(h5f)):
+                key = str(idx)
 
-                if scan_key not in h5f:
+                if key not in h5f or isinstance(h5f[key], h5py.Dataset):
                     continue
 
-                scan = h5f[scan_key]
+                scans.append(idx)
 
-                if isinstance(scan, h5py.Dataset):
-                    errmsg = f"Scan {scan_key} is a dataset in {self.path}"
-                    raise ValueError(errmsg)
+        if len(scans) == 0:
+            errmsg = f"No scans found in {self.path}"
+            raise ValueError(errmsg)
 
-                scans.append(scan_idx)
+        return scans
 
-            if len(scans) == 0:
-                errmsg = f"No scans found in {self.path}"
-                raise ValueError(errmsg)
-
-            # step values are only taken from scan 0 as all scans
-            # should contain the same steps (unless a scan was interrupted)
-            for step_key, step in h5f["0"].items():
-                if isinstance(step, h5py.Dataset):
-                    # there should be no datasets here
-                    continue
-
-                # skip the "by_idx" group, which is used for access
-                # to steps by index instead of step value
-                if step_key == "by_idx":
-                    continue
-
-                steps.append(step_key)
-
-            if len(steps) == 0:
-                errmsg = f"No steps found in {self.path}"
-                raise ValueError(errmsg)
-
-            # channel names are only taken from scan 0 and the first
-            # step, so e.g. coincidence categories might not show up
-            # here, if they are only present in the following steps
-            for channel_key, channel in h5f["0"][steps[0]].items():
-                if not isinstance(channel, h5py.Dataset):
-                    continue
-
-                channels.append(channel_key)
-
-            if len(channels) == 0:
-                errmsg = f"No channels found in {self.path}"
-                raise ValueError(errmsg)
-
-        return frozenset(channels), scans, sorted(steps)
-
-    def _read_by_idx(
-        self, h5f: h5py.File, channel: str, scan_idx: int, step_idx: int
-    ) -> NDArray:
+    def _steps(self, h5f: h5py.File, scan_idx: int) -> Iterator[str]:
         scan_key = str(scan_idx)
-
         if scan_key not in h5f:
             errmsg = f"Scan {scan_idx} not found in {self.path}"
             raise ValueError(errmsg)
 
-        steps = h5f[scan_key]
+        for step_key, step in h5f[scan_key].items():
+            if isinstance(step, h5py.Dataset):
+                # there should be no datasets here
+                continue
 
-        # metro2hdf stores datasets by step index in a
-        # "scan_idx/by_idx/step_idx" group and creates a link
-        # "scan_idx/step_val" if the step value was succesfully
-        # parsed for any of the channels
-        step_key = f"by_idx/{step_idx}"
+            # skip the "by_idx" group, which is used for access
+            # to steps by index instead of step value
+            if step_key == "by_idx":
+                continue
 
-        if step_key not in steps:
+            yield step_key
+
+    def list_steps(self, scan_idx: int = 0) -> list[str]:
+        with h5py.File(self.path, "r") as h5f:
+            return list(self._steps(h5f, scan_idx))
+
+    def _channels(
+        self,
+        h5f: h5py.File,
+        scan_idx: int,
+        step: str | int
+    ) -> Iterator[str]:
+        scan_key = str(scan_idx)
+        if scan_key not in h5f:
+            errmsg = f"Scan {scan_idx} not found in {self.path}"
+            raise ValueError(errmsg)
+
+        step_key = step if isinstance(step, str) else f"by_idx/{step}"
+        if step_key not in h5f[scan_key]:
             errmsg = f"Step {step_key} not found in {self.path}/{scan_idx}"
             raise ValueError(errmsg)
 
-        channels = steps[step_key]
+        for channel_key, channel in h5f[scan_key][step_key].items():
+            if not isinstance(channel, h5py.Dataset):
+                continue
 
-        if channel not in channels:
-            errmsg = f"Channel {channel} not found in {self.path}"
-            raise ValueError(errmsg)
+            yield channel_key
 
-        # TODO: hdf5 loads the data in row-major order ("C"), but for
-        # most types of data analysis a column-major order would
-        # be benificial, so the conversion is done here. Some testing
-        # with actual data is needed to decide if this should be kept
-        # or made optional...
-        return np.array(channels[channel], order="F").squeeze()
-
-    def _read_by_val(
-        self, h5f: h5py.File, channel: str, scan_idx: int, step_val: str
-    ) -> NDArray:
-        scan_key = str(scan_idx)
-
-        if scan_key not in h5f:
-            errmsg = f"Scan {scan_idx} not found in {self.path}"
-            raise ValueError(errmsg)
-
-        steps = h5f[scan_key]
-
-        if step_val not in steps:
-            errmsg = f"Step {step_val} not found in {self.path}/{scan_idx}"
-            raise ValueError(errmsg)
-
-        channels = steps[step_val]
-
-        if channel not in channels:
-            errmsg = f"Channel {channel} not found in {self.path}"
-            raise ValueError(errmsg)
-
-        return np.array(channels[channel], order="F").squeeze()
+    def list_channels(self, step: str | int, scan_idx: int = 0) -> list[str]:
+        with h5py.File(self.path, "r") as h5f:
+            return list(self._channels(h5f, scan_idx, step))
 
     def __call__(
         self,
         channel: str,
         scan_idx: int = 0,
-        step_idx: int = 0,
-        step_val: str | None = None,
+        step: str | int = 0,
     ) -> NDArray:
         """Read data for the given data channel, scan, and step.
 
@@ -290,11 +206,8 @@ class MetroRun:
             Data channel to read (e.g. "dld_rd#raw" or "2E1P")
         scan_idx : int, optional
             Scan to read (default: 0)
-        step_idx : int, optional
+        step : str or int, optional
             Step to read (default: 0)
-        step_val : str or None, optional
-            Access dataset by step value taking precedence over
-            the default access by step index.
 
         Returns
         -------
@@ -308,10 +221,21 @@ class MetroRun:
 
         """
         with h5py.File(self.path, "r") as h5f:
-            if step_val is None:
-                return self._read_by_idx(h5f, channel, scan_idx, step_idx)
-            else:
-                return self._read_by_val(h5f, channel, scan_idx, step_val)
+            scan_key = str(scan_idx)
+            if scan_key not in h5f:
+                errmsg = f"Scan {scan_idx} not found in {self.path}"
+                raise ValueError(errmsg)
+
+            # metro2hdf stores datasets by step index in a
+            # "scan_idx/by_idx/step_idx" group and creates a link
+            # "scan_idx/step_val" if the step value was succesfully
+            # parsed for any of the channels
+            step_key = step if isinstance(step, str) else f"by_idx/{step}"
+            if step_key not in h5f[scan_key]:
+                errmsg = f"Step {step_key} not found in {self.path}/{scan_idx}"
+                raise ValueError(errmsg)
+
+            return read_dset(h5f[scan_key][step_key], channel)
 
     def read_steps(self, scan_idx: int = 0) -> Iterator[tuple[str, callable]]:
         """Iterator over steps for the given scan.
@@ -334,8 +258,44 @@ class MetroRun:
 
         """
         with h5py.File(self.path, "r") as h5f:
-            for step_val in self.steps:
-                reader = partial(
-                    self._read_by_val, h5f, Placeholder, scan_idx, step_val
-                )
+            for step_val in self._steps(h5f, scan_idx):
+                reader = partial(read_dset, h5f[str(scan_idx)][step_val])
                 yield step_val, reader
+
+
+def glob_runs(path: Path):
+    for num_digits in range(1, 5):
+        pattern1 = "".join(["[0-9]"] * num_digits) + ".h5"
+        pattern2 = "".join(["[0-9]"] * num_digits) + "_*.h5"
+
+        # get matching files
+        matches = list(path.glob(pattern1)) + list(path.glob(pattern2))
+
+        if len(matches) == 0:
+            continue
+
+        for match in matches:
+            yield match.name[:num_digits], match
+
+
+def load_runs(path: str | Path | None = None):
+    path = Path.cwd() if path is None else Path(path)
+
+    run_dict = {}
+    for num, file_path in glob_runs(path):
+        run_dict[num] = MetroRun(file_path)
+
+    return run_dict
+
+
+def read_dset(h5g: h5py.Group, key: str):
+    if key not in h5g:
+        errmsg = f"Dataset {key} not found"
+        raise ValueError(errmsg)
+
+    # TODO: hdf5 loads the data in row-major order ("C"), but for
+    # most types of data analysis a column-major order would
+    # be benificial, so the conversion is done here. Some testing
+    # with actual data is needed to decide if this should be kept
+    # or made optional...
+    return np.array(h5g[key], order="F").squeeze()
