@@ -1,10 +1,10 @@
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QTabWidget
 import numpy as np
-from metro_eval.coinc.analysis_pages import (SignalPage, 
-                                             HistogramPage, 
-                                             CoincmapPage, 
-                                             CalibrationViewPage, 
-                                             ScanAnalysisPage)
+from metro_eval.coinc.gui.analysis_pages import (SignalPage,
+                                               HistogramPage,
+                                               CoincmapPage,
+                                               CalibrationViewPage,
+                                               ScanAnalysisPage)
 from metro_eval.coinc.calibration.calibration_model import Calibration
 
 

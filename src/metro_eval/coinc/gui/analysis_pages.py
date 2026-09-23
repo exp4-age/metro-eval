@@ -23,10 +23,10 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Signal
 
 import pyqtgraph as pg
-from metro_eval.coinc.plot_functions import interactive
+from metro_eval.coinc.gui.widgets.coinc_widget import interactive
 from metro_eval.coinc.calibration.calibration_model import Calibration
 from metro_eval.coinc.calibration.calibration_manager import plot_calibration_pg
-from metro_eval.coinc.peak_fit import fit_peak
+from metro_eval.coinc.processing.peak_fit import fit_peak
 
 from typing import TYPE_CHECKING
 from numpy.typing import ArrayLike, NDArray

@@ -35,9 +35,8 @@ import logging
 
 
 from metro_eval.coinc.io.file_handler import get_keys, read_coinc
-from metro_eval.coinc.plot_functions import hist_1D
-from metro_eval.coinc.mask_functions import mask_by_column
-from metro_eval.coinc.gui.widgets.log_widget import setup_gui_logging, LogWidget
+from metro_eval.coinc.gui.plot_functions import hist_1D
+from metro_eval.coinc.processing.mask_functions import mask_by_column
 from metro_eval.coinc.calibration.calibration_manager import (
     list_calibrations,
     load_calibration,
@@ -50,6 +49,7 @@ from metro_eval.coinc.gui.widgets.calibration_editor import CalibrationEditor
 from metro_eval.coinc.gui.widgets.plot_definition import PlotDefinitionWidget
 from metro_eval.coinc.gui.widgets.mask_selection import MaskSelectionWidget
 from metro_eval.coinc.gui.widgets.plot_workspace import PlotWorkspace
+from metro_eval.coinc.gui.widgets.log_widget import setup_gui_logging, LogWidget
 
 class MainWindow(QMainWindow):
     """Main Qt window for loading, processing, and plotting coincidence data.
