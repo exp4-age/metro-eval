@@ -125,6 +125,16 @@ class MetroRun:
             raise ValueError(errmsg)
 
     def list_scans(self) -> list[int]:
+        """Lists the scans found in the run by index (name).
+
+        Does not guarantee that all found scans contain data.
+
+        Returns
+        -------
+        list
+            Scan indices read from the group names.
+
+        """
         scans = []
 
         with h5py.File(self.path, "r") as h5f:
@@ -132,15 +142,8 @@ class MetroRun:
             # from 0, any non matching objects will be ignored
             for idx in range(len(h5f)):
                 key = str(idx)
-
-                if key not in h5f or isinstance(h5f[key], h5py.Dataset):
-                    continue
-
-                scans.append(idx)
-
-        if len(scans) == 0:
-            errmsg = f"No scans found in {self.path}"
-            raise ValueError(errmsg)
+                if key in h5f and isinstance(h5f[key], h5py.Group):
+                    scans.append(idx)
 
         return scans
 
@@ -151,18 +154,27 @@ class MetroRun:
             raise ValueError(errmsg)
 
         for step_key, step in h5f[scan_key].items():
-            if isinstance(step, h5py.Dataset):
-                # there should be no datasets here
-                continue
-
-            # skip the "by_idx" group, which is used for access
-            # to steps by index instead of step value
-            if step_key == "by_idx":
+            if isinstance(step, h5py.Dataset) or step_key == "by_idx":
+                # skip the "by_idx" group, which is used for access
+                # to steps by index instead of step value
                 continue
 
             yield step_key
 
     def list_steps(self, scan_idx: int = 0) -> list[str]:
+        """Lists all step values found in the given scan.
+
+        Parameters
+        ----------
+        scan_idx : int, optional
+            Specify a scan in which to search for step values.
+
+        Returns
+        -------
+        list
+            Step values read from the group names.
+
+        """
         with h5py.File(self.path, "r") as h5f:
             return list(self._steps(h5f, scan_idx))
 
@@ -189,6 +201,24 @@ class MetroRun:
             yield channel_key
 
     def list_channels(self, step: str | int, scan_idx: int = 0) -> list[str]:
+        """Lists all channels found in the given scan and step.
+
+        .. note:: The channel list may differ between steps in case
+            of empty datasets (e.g. empty coincidence categories)
+
+        Parameters
+        ----------
+        step: str or int
+            Step index or value specifying in which group to
+            search for datasets.
+        scan_idx : int, optional
+            Specify a scan from which to select the step.
+
+        Returns
+        -------
+        list
+            Step values read from the group names.
+        """
         with h5py.File(self.path, "r") as h5f:
             return list(self._channels(h5f, scan_idx, step))
 
@@ -205,9 +235,9 @@ class MetroRun:
         channel : str
             Data channel to read (e.g. "dld_rd#raw" or "2E1P")
         scan_idx : int, optional
-            Scan to read (default: 0)
+            Scan index to read (default: 0)
         step : str or int, optional
-            Step to read (default: 0)
+            Step index or value to read (default: 0)
 
         Returns
         -------
@@ -245,16 +275,16 @@ class MetroRun:
 
         Parameters
         ----------
-        scan : str, optional
+        scan_idx : int, optional
             Scan over which to iterate
 
         Yields
         ------
-        step : str
+        step_val : str
             Step name (e.g. "0.0")
         reader : callable
-            Function that takes a channel name and reads and returns
-            the data for the given channel.
+            Function that takes a channel name and reads the data
+            for the given channel.
 
         """
         with h5py.File(self.path, "r") as h5f:
@@ -278,7 +308,23 @@ def glob_runs(path: Path):
             yield match.name[:num_digits], match
 
 
-def load_runs(path: str | Path | None = None):
+def load_runs(path: str | Path | None = None) -> dict[str, MetroRun]:
+    """Search the given directory for metro run files processed
+    by metro2hdf using glob matching.
+
+    Looks for ".h5" files starting with 1 to 5 numbers either
+    followed directly by the file extension or "_*.h5".
+
+    .. warning:: In case of multiple files with the same run number
+        only the last found run is kept.
+
+    Parameters
+    ----------
+    path: str or Path, optional
+        Path to the directory to search in. Defaults to the
+        current working directory.
+
+    """
     path = Path.cwd() if path is None else Path(path)
 
     run_dict = {}
