@@ -51,7 +51,7 @@ from metro_eval.coinc.gui.widgets.mask_selection import MaskSelectionWidget
 from metro_eval.coinc.gui.widgets.plot_workspace import PlotWorkspace
 from metro_eval.coinc.gui.widgets.log_widget import setup_gui_logging, LogWidget
 
-class MainWindow(QMainWindow):
+class CoInspect(QMainWindow):
     """Main Qt window for loading, processing, and plotting coincidence data.
 
     The window owns the user interface and orchestration logic only. The scientific
@@ -66,7 +66,7 @@ class MainWindow(QMainWindow):
 
         super().__init__()
 
-        self.setWindowTitle("Analysis GUI")
+        self.setWindowTitle("CoInspect - Coincidence Analysis")
         self.resize(1400, 800)
 
 
@@ -1025,7 +1025,7 @@ def start(blocking: bool = True):
         if app is None:
             app = QApplication([])
     
-        window = MainWindow()
+        window = CoInspect()
         window.show()
     
         if blocking:
