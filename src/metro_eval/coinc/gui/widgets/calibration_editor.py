@@ -319,9 +319,6 @@ class CalibrationEditor(QMainWindow):
 
         # Initial fit parameters
         
-
-        number_of_init_parameters = 6
-        
         init_params_layout = QHBoxLayout()
 
         
