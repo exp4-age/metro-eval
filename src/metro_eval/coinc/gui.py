@@ -634,8 +634,16 @@ class CoInspect(QMainWindow):
             return
 
         # Builds a histogram from dat_current and plots it to a new PlotWorkspace tab
-        x, y = hist_1D(self.workflow.current, col_idx, range=(range_lo, range_hi), bins=bins)
-        self.plot_workspace.add_histogram_plot(x, y[:-1], xlabel=f"Particle {col_idx+1}", ylabel="Intensity")
+        units = "eV"
+        if self.status["Calibrated"] == "N/A":
+            units = "ns"
+
+        self.plot_workspace.add_histogram_plot_interactive(self.workflow.current[:,col_idx], bins=bins,
+            range=(range_lo, range_hi), 
+            xlabel=f"Particle {col_idx+1}", 
+            units=units)
+        #x, y = hist_1D(self.workflow.current, col_idx, range=(range_lo, range_hi), bins=bins)
+        #self.plot_workspace.add_histogram_plot(x, y[:-1], xlabel=f"Particle {col_idx+1}", ylabel="Intensity")
 
         self.logger.info("Histogram plotted.")
 

@@ -48,10 +48,17 @@ class PlotWorkspace(QWidget):
 
         page = SignalPage(x, y)
         self.add_page(page)
-
-    def add_histogram_plot(self, values, edges, xlabel=None, ylabel=None):
-        page = HistogramPage(values, edges, xlabel=xlabel, ylabel=ylabel)
+    
+    def add_histogram_plot_interactive(self, 
+                                       data,
+                                       bins=50,
+                                       range=None,
+                                       xlabel=None,
+                                       units=None 
+                                       ):
+        page = HistogramPage(data, bins=bins, range=range, xlabel=xlabel, units=units)
         self.add_page(page)
+                                       
 
     def add_coincidence_map(self, data, bins=50, range=None, xlabel="first electron", ylabel="second electron", units=None):
         page = CoincmapPage(data, bins=bins, range=range, xlabel=xlabel, ylabel=ylabel, units=units)

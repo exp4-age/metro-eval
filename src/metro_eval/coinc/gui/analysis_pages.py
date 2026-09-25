@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Signal
 
 import pyqtgraph as pg
-from metro_eval.coinc.gui.widgets.coinc_widget import interactive
+from metro_eval.coinc.gui.widgets.coinc_widget import interactive, SpecWidget
 from metro_eval.coinc.calibration.calibration_model import Calibration
 from metro_eval.coinc.calibration.calibration_manager import plot_calibration_pg
 from metro_eval.coinc.processing.peak_fit import fit_peak
@@ -98,24 +98,20 @@ class HistogramPage(AnalysisPage):
     Simple 1D histogram plot page.
     """
 
-    def __init__(self, values, 
-                 edges, 
-                 xlabel="", 
-                 ylabel="", 
-                 plot_kwargs={}):
+    def __init__(self, 
+            data: NDArray,
+            bins: int = 50,
+            range: ArrayLike | None = None,
+            xlabel: str = "first electron",
+            ylabel: str = "Counts",
+            units: str | None = None,):
         super().__init__("1D Histogram")
 
-        self.plot_widget = pg.PlotWidget()
-
-        self.plot_widget.showGrid(x=True, y=True)
-
-        self.plot_widget.plot(
-            edges,
-            values,
-            pen=pg.mkPen(width=2),
-            xlabel=xlabel,
-            ylabel=ylabel,
-            **plot_kwargs
+        self.plot_widget = SpecWidget(data=data, 
+        bins=bins,
+        range=range,
+        xlabel=xlabel,
+        units=units
         )
 
         self.main_layout.addWidget(self.plot_widget)
