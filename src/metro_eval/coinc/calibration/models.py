@@ -25,6 +25,39 @@ def poly_with_offset(x, *coeffs):  # x_offset FIRST optional param!
 
 
 
+
+def _build_model_entry(func, description, parameter_labels, default_initial_parameters):
+    """Build a user-facing model definition with metadata for the GUI."""
+    return {
+        "func": func,
+        "description": description,
+        "parameter_labels": list(parameter_labels),
+        "default_initial_parameters": list(default_initial_parameters),
+    }
+
+
 MODELS = {
-    "poly_offset" : poly_with_offset,
+    "poly_offset": _build_model_entry(
+        poly_with_offset,
+        (
+            "Offset polynomial correction used for TOF-to-energy calibration. "
+            "The first value is the x-offset, and the remaining coefficients are "
+            "used as inverse powers of x-x_offset."
+        ),
+        ["x_offset", "c1", "c2", "c3", "c4", "c5"],
+        [0,0,0,0,0,0],
+    )
+}
+
+
+def get_model_config(model_name: str):
+    """Return the registry entry for a model, preserving backward compatibility."""
+    model = MODELS.get(model_name)
+    if isinstance(model, dict):
+        return model
+    return {
+        "func": model,
+        "description": "No description available for this model.",
+        "parameter_labels": [f"a{i}" for i in range(6)],
+        "default_initial_parameters": [0.0] * 6,
     }

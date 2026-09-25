@@ -106,7 +106,11 @@ class Calibration:
             self.load_dict(calibration_dict)
             self.populate_metadata(calibration_dict)
 
-            if self.method is not None and self.model_func is not None and self.p0 is not None:
+            if (
+                self.method is not None
+                and self.model_func is not None
+                and self.p0 is not None
+            ):
                 self.get_conversion(set_values=True)
                 self.__format_parameters()
 
@@ -129,7 +133,8 @@ class Calibration:
         if "initial_parameters" in data_dict:
             self.p0 = data_dict["initial_parameters"]["p0"]
         if "model_type" in data_dict:
-            self.model_func = models.MODELS[data_dict["model_type"]]
+            model_config = models.get_model_config(data_dict["model_type"])
+            self.model_func = model_config["func"]
         if "bunch_overlap" in data_dict:
             self.bunch_overlap_params = data_dict["bunch_overlap"]
         if "Comments" in data_dict:
@@ -208,6 +213,13 @@ class Calibration:
             method = self.method
         if verbalize:
             print(f"Used fitting method: {method}")
+
+        if p0 is None or np.allclose(np.asarray(p0, dtype=float), 0.0):
+            if set_values:
+                self.popt = None
+                self.perr = None
+                self.pcov = None
+            return None, None, None
 
         if set_values:
             self.method = method

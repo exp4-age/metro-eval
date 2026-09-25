@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QVBoxLayout,
     QWidget,
+    QApplication,
 )
 
 from PySide6.QtGui import QIcon
@@ -25,11 +26,12 @@ from metro_eval.coinc.calibration.calibration_manager import (
 )
 from metro_eval.coinc.io.file_handler import ScanData, ScanSpectrum, read_scan
 from metro_eval.coinc.gui.widgets.plot_workspace import PlotWorkspace
-from metro_eval.coinc.calibration.models import MODELS
+from metro_eval.coinc.calibration.models import MODELS, get_model_config
 import pyqtgraph as pg
 from datetime import datetime
 import numpy as np
 import os
+import sys
 
 
 
@@ -302,27 +304,43 @@ class CalibrationEditor(QMainWindow):
         if self.calibration.method is not None:
             self.method_combo.setCurrentText(self.calibration.method)
 
+        method_label = QLabel("Method:")
+        method_label.setBuddy(self.method_combo)
+
         self.models_combo = QComboBox()
         self.models_combo.addItems([model for model in MODELS.keys()])
         self.models_combo.currentTextChanged.connect(self.update_calibration_plot)
         if self.calibration.model_func is not None:
-            self.method_combo.setCurrentText(self.calibration.calibration_dict["model_type"])
+            self.models_combo.setCurrentText(self.calibration.calibration_dict["model_type"])
         
+        model_label = QLabel("Model:")
+        model_label.setBuddy(self.models_combo)
+
+
         # Initial fit parameters
+        
+
         number_of_init_parameters = 6
         
         init_params_layout = QHBoxLayout()
-        
-        self.init_params_edits = {}
-        for i in range(number_of_init_parameters):
-            edit = QLineEdit()
-            edit.editingFinished.connect(self.update_calibration_plot)
-            self.init_params_edits[f"a{i}"] = edit
-            init_params_layout.addWidget(edit)
 
-        if self.calibration.p0 is not None:
-            for i in range(len(self.calibration.p0)):
-                self.init_params_edits[f"a{i}"].setText(str(self.calibration.p0[i]))
+        
+        init_label = QLabel("Initial Parameters:")
+        fitted_label = QLabel("Fitted Parameters:")
+        self.init_params_edits = {}
+        model_cfg = get_model_config(self.models_combo.currentText())
+        
+        for (param_label, default_value) in zip(model_cfg["parameter_labels"], model_cfg["default_initial_parameters"]):
+            if param_label not in self.init_params_edits:
+                edit = QLineEdit()
+                label = QLabel(param_label)
+                label.setBuddy(edit)
+                edit.setPlaceholderText(str(default_value))
+                edit.editingFinished.connect(self.update_calibration_plot)
+                self.init_params_edits[param_label] = edit
+                init_params_layout.addWidget(edit)
+            else:
+                self.init_params_edits[param_label].setPlaceholderText(str(default_value))
         
         # Fitted parameters (read-only)
         fitted_params_layout = QHBoxLayout()
@@ -340,11 +358,16 @@ class CalibrationEditor(QMainWindow):
         
 
         # Layout
+        fit_settings_layout.addWidget(method_label)
         fit_settings_layout.addWidget(self.method_combo)
+        fit_settings_layout.addWidget(model_label)
         fit_settings_layout.addWidget(self.models_combo)
 
+        
         cal_plot_layout.addLayout(fit_settings_layout)
+        cal_plot_layout.addWidget(init_label)
         cal_plot_layout.addLayout(init_params_layout)
+        cal_plot_layout.addWidget(fitted_label)
         cal_plot_layout.addLayout(fitted_params_layout)
         cal_plot_layout.addWidget(self.plot_widget)
 
@@ -420,11 +443,11 @@ class CalibrationEditor(QMainWindow):
     def get_initial_fit_parameters_from_edits(self) -> list:
         """Return the initial fit parameters currently entered in the calibration editor."""
         parameter_list = []
-        for i in range(len(self.init_params_edits)):
-            if self.init_params_edits[f"a{i}"].text() == "":
+        for label, edit in self.init_params_edits.items():
+            if edit.text() == "":
                 continue
             else:
-                parameter_list.append(float(self.init_params_edits[f"a{i}"].text()))
+                parameter_list.append(float(edit.text()))
         return parameter_list
 
     def get_bunch_overlap_params_from_edits(self)-> dict:
@@ -462,6 +485,8 @@ class CalibrationEditor(QMainWindow):
         plot_calibration_pg(self.calibration, self.plot_widget)
         
         if self.calibration.popt is not None:
+            for edits in self.fitted_params_edits.values():
+                edits.clear()
             for i in range(len(self.calibration.p0)):
                 self.fitted_params_edits[f"a{i}"].setText(f"{self.calibration.popt[i]:.2e}")
         
@@ -651,4 +676,28 @@ class CalibrationEditor(QMainWindow):
                 return
         
         self.add_points_row(request)
+
+
+
+
+
+# ==========================================
+# RUN APPLICATION
+# ==========================================
+
+def start(blocking: bool = True):
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication([])
     
+        window = CalibrationEditor()
+        window.show()
+    
+        if blocking:
+            sys.exit(app.exec())
+        return window
+
+
+if __name__ == "__main__":
+    start()
+
