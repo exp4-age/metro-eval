@@ -8,4 +8,7 @@ docs/_build/
 build/
 *.so
 *.c
+*.pyd
 uv.lock
+.venv/
+

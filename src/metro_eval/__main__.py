@@ -4,6 +4,7 @@ import argparse
 
 from .cli.metro2hdf import cli as metro2hdf
 from .cli.sort_events import cli as sort_events
+from .cli import coinc
 
 
 def main():
@@ -12,6 +13,7 @@ def main():
 
     metro2hdf.parser(subparsers)
     sort_events.parser(subparsers)
+    coinc.parser(subparsers)
 
     args = parser.parse_args()
     args.func(args)
