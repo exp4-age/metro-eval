@@ -331,36 +331,82 @@ class CalibrationEditor(QMainWindow):
         model_info_layout.addWidget(math_label)
 
         # Initial fit parameters
-        init_params_layout = QHBoxLayout()
 
-        # Fitted parameters (read-only)
-        fitted_params_layout = QHBoxLayout()
-        
+        parameters_layout = QGridLayout()
+
         init_label = QLabel("Initial Parameters:")
         fitted_label = QLabel("Fitted Parameters:")
+
+        parameters_layout.addWidget(
+            init_label,
+            0,
+            0,
+            1,
+            2,
+        )
+        parameters_layout.addWidget(
+            fitted_label,
+            0,
+            2,
+            1,
+            2,
+        )
+
         self.init_params_edits = {}
         self.fitted_params_edits = {}
-        
-        for (param_label, default_value) in zip(model_cfg["parameter_labels"], model_cfg["default_initial_parameters"]):
-            if param_label not in self.init_params_edits:
-                init_edit = QLineEdit()
-                init_param_label = QLabel(param_label)
-                init_param_label.setBuddy(init_edit)
-                init_edit.setPlaceholderText(str(default_value))
-                init_edit.editingFinished.connect(self.update_calibration_plot)
-                self.init_params_edits[param_label] = init_edit
-                init_params_layout.addWidget(init_param_label)
-                init_params_layout.addWidget(init_edit)
-                
-                fitted_edit = QLineEdit()
-                fitted_param_label = QLabel(param_label)
-                fitted_param_label.setBuddy(fitted_edit)
-                fitted_edit.setReadOnly(True)
-                self.fitted_params_edits[param_label] = fitted_edit
-                fitted_params_layout.addWidget(fitted_param_label)
-                fitted_params_layout.addWidget(fitted_edit)
-            else:
-                self.init_params_edits[param_label].setPlaceholderText(str(default_value))
+
+        for row, (param_label, default_value) in enumerate(
+            zip(
+                model_cfg["parameter_labels"],
+                model_cfg["default_initial_parameters"],
+            ),
+            start=1,
+        ):
+            # Initial parameter
+            init_edit = QLineEdit()
+            init_param_label = QLabel(param_label)
+
+            init_param_label.setBuddy(init_edit)
+            init_edit.setPlaceholderText(str(default_value))
+            init_edit.editingFinished.connect(
+                self.update_calibration_plot
+            )
+
+            self.init_params_edits[param_label] = init_edit
+
+            parameters_layout.addWidget(
+                init_param_label,
+                row,
+                0,
+            )
+            parameters_layout.addWidget(
+                init_edit,
+                row,
+                1,
+            )
+
+            # Fitted parameter
+            fitted_edit = QLineEdit()
+            fitted_param_label = QLabel(param_label)
+
+            fitted_param_label.setBuddy(fitted_edit)
+            fitted_edit.setReadOnly(True)
+
+            self.fitted_params_edits[param_label] = fitted_edit
+
+            parameters_layout.addWidget(
+                fitted_param_label,
+                row,
+                2,
+            )
+            parameters_layout.addWidget(
+                fitted_edit,
+                row,
+                3,
+            )
+
+        parameters_layout.setColumnStretch(1, 1)
+        parameters_layout.setColumnStretch(3, 1)
         
         # Populate the LineEdits for the fitted parameters if the calibration object has a valid popt attribute
         if self.calibration.popt is not None:
@@ -382,10 +428,7 @@ class CalibrationEditor(QMainWindow):
         
         cal_plot_layout.addLayout(fit_settings_layout)
         cal_plot_layout.addLayout(model_info_layout)
-        cal_plot_layout.addWidget(init_label)
-        cal_plot_layout.addLayout(init_params_layout)
-        cal_plot_layout.addWidget(fitted_label)
-        cal_plot_layout.addLayout(fitted_params_layout)
+        cal_plot_layout.addLayout(parameters_layout)
         cal_plot_layout.addWidget(self.plot_widget)
 
         cal_plot_panel.setLayout(cal_plot_layout)
@@ -447,7 +490,12 @@ class CalibrationEditor(QMainWindow):
                 "perr" : []
             }
         info["fitted_parameters"] = fit_results
-        info["bunch_overlap"] = self.get_bunch_overlap_params_from_edits()
+        bunch_overlap = (
+            self.get_bunch_overlap_params_from_edits()
+        )
+
+        if bunch_overlap is not None:
+            info["bunch_overlap"] = bunch_overlap
         info["calibration_points"] = self.get_calibration_points()   
         
         # Save with timestamp
@@ -467,17 +515,75 @@ class CalibrationEditor(QMainWindow):
                 parameter_list.append(float(edit.text()))
         return parameter_list
 
-    def get_bunch_overlap_params_from_edits(self)-> dict:
-        params = {}
+    def get_bunch_overlap_params_from_edits(self) -> dict | None:
+        """
+        Read bunch-overlap parameters.
 
-        params["repetition_time"] = float(self.bunch_overlap_edits["reptime"].text())
-        params["ROI_first"] = [float(self.bunch_overlap_edits["roi_first_min"].text()),
-                               float(self.bunch_overlap_edits["roi_first_max"].text())]
-        params["ROI_last"] = [float(self.bunch_overlap_edits["roi_last_min"].text()),
-                               float(self.bunch_overlap_edits["roi_last_max"].text())]
-        #    end = float(start.text()) if start.text() else None
-            
-        return params
+        Returns
+        -------
+        dict
+            Complete bunch-overlap data.
+
+        None
+            If at least one bunch-overlap field is empty.
+
+        Raises
+        ------
+        ValueError
+            If all fields are filled but one contains invalid numeric text.
+        """
+
+        edits = self.bunch_overlap_edits
+
+        texts = {
+            name: edit.text().strip()
+            for name, edit in edits.items()
+        }
+
+        # Empty or whitespace-only fields mean:
+        # no bunch-overlap data should be stored.
+        if any(not text for text in texts.values()):
+            return None
+
+        def to_float(name):
+            try:
+                return float(texts[name])
+
+            except ValueError as exc:
+                raise ValueError(
+                    f"Bunch-overlap field {name!r} must be numeric; "
+                    f"got {texts[name]!r}."
+                ) from exc
+
+        repetition_time = to_float("reptime")
+
+        roi_first_min = to_float("roi_first_min")
+        roi_first_max = to_float("roi_first_max")
+
+        roi_last_min = to_float("roi_last_min")
+        roi_last_max = to_float("roi_last_max")
+
+        if roi_first_min > roi_first_max:
+            raise ValueError(
+                "ROI_first minimum cannot be greater than its maximum."
+            )
+
+        if roi_last_min > roi_last_max:
+            raise ValueError(
+                "ROI_last minimum cannot be greater than its maximum."
+            )
+
+        return {
+            "repetition_time": repetition_time,
+            "ROI_first": [
+                roi_first_min,
+                roi_first_max,
+            ],
+            "ROI_last": [
+                roi_last_min,
+                roi_last_max,
+            ],
+        }
         
     def populate_bunch_overlap_param_edits_from_calibration(self):
         
@@ -496,16 +602,17 @@ class CalibrationEditor(QMainWindow):
         for end, start in assignments:
             end.setText(str(start)) if start != None else None
 
-
     def update_calibration_plot(self) -> None:
         self.populate_calibration_from_edits()
         plot_calibration_pg(self.calibration, self.plot_widget)
-        
         if self.calibration.popt is not None:
             for edits in self.fitted_params_edits.values():
                 edits.clear()
-            for i in range(len(self.calibration.p0)):
-                self.fitted_params_edits[f"a{i}"].setText(f"{self.calibration.popt[i]:.2e}")
+            for index, label in enumerate(self.init_params_edits.keys()):
+                if index >= len(self.calibration.popt):
+                    break
+                else:
+                    self.fitted_params_edits[label].setText(f"{self.calibration.popt[index]:.2e}")
         
 
 
