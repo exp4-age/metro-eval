@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
     QApplication,
 )
+from PySide6.QtCore import Qt
 
 from PySide6.QtGui import QIcon
 from metro_eval.coinc.calibration.calibration_model import Calibration
@@ -315,44 +316,60 @@ class CalibrationEditor(QMainWindow):
         
         model_label = QLabel("Model:")
         model_label.setBuddy(self.models_combo)
+        
+        model_cfg = get_model_config(self.models_combo.currentText())
 
+        model_info_layout = QVBoxLayout()
+
+        desc_label = QLabel("Description: "+model_cfg["description"])
+        desc_label.setWordWrap(True)
+        math_label = QLabel()
+        math_label.setTextFormat(Qt.TextFormat.RichText)
+        math_label.setText("Mathematical expression:\n "+model_cfg["expression"])
+        math_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        model_info_layout.addWidget(desc_label)
+        model_info_layout.addWidget(math_label)
 
         # Initial fit parameters
-        
         init_params_layout = QHBoxLayout()
 
+        # Fitted parameters (read-only)
+        fitted_params_layout = QHBoxLayout()
         
         init_label = QLabel("Initial Parameters:")
         fitted_label = QLabel("Fitted Parameters:")
         self.init_params_edits = {}
-        model_cfg = get_model_config(self.models_combo.currentText())
+        self.fitted_params_edits = {}
         
         for (param_label, default_value) in zip(model_cfg["parameter_labels"], model_cfg["default_initial_parameters"]):
             if param_label not in self.init_params_edits:
-                edit = QLineEdit()
-                label = QLabel(param_label)
-                label.setBuddy(edit)
-                edit.setPlaceholderText(str(default_value))
-                edit.editingFinished.connect(self.update_calibration_plot)
-                self.init_params_edits[param_label] = edit
-                init_params_layout.addWidget(edit)
+                init_edit = QLineEdit()
+                init_param_label = QLabel(param_label)
+                init_param_label.setBuddy(init_edit)
+                init_edit.setPlaceholderText(str(default_value))
+                init_edit.editingFinished.connect(self.update_calibration_plot)
+                self.init_params_edits[param_label] = init_edit
+                init_params_layout.addWidget(init_param_label)
+                init_params_layout.addWidget(init_edit)
+                
+                fitted_edit = QLineEdit()
+                fitted_param_label = QLabel(param_label)
+                fitted_param_label.setBuddy(fitted_edit)
+                fitted_edit.setReadOnly(True)
+                self.fitted_params_edits[param_label] = fitted_edit
+                fitted_params_layout.addWidget(fitted_param_label)
+                fitted_params_layout.addWidget(fitted_edit)
             else:
                 self.init_params_edits[param_label].setPlaceholderText(str(default_value))
         
-        # Fitted parameters (read-only)
-        fitted_params_layout = QHBoxLayout()
-
-        number_of_init_parameters = 6
-        self.fitted_params_edits = {}
-        for i in range(number_of_init_parameters):
-            edit = QLineEdit()
-            edit.setReadOnly(True)
-            self.fitted_params_edits[f"a{i}"] = edit
-            fitted_params_layout.addWidget(edit)
-
+        # Populate the LineEdits for the fitted parameters if the calibration object has a valid popt attribute
         if self.calibration.popt is not None:
-            for i in range(len(self.calibration.p0)):
-                self.fitted_params_edits[f"a{i}"].setText(f"{self.calibration.popt[i]:.2e}")
+            for index, label in enumerate(self.init_params_edits.keys()):
+                if index >= len(self.calibration.popt):
+                    break
+                else:
+                    self.init_params_edits[label].setText(f"{self.calibration.p0[index]:.2e}")
+                    self.fitted_params_edits[label].setText(f"{self.calibration.popt[index]:.2e}")
         
 
         # Layout
@@ -360,9 +377,11 @@ class CalibrationEditor(QMainWindow):
         fit_settings_layout.addWidget(self.method_combo)
         fit_settings_layout.addWidget(model_label)
         fit_settings_layout.addWidget(self.models_combo)
+        
 
         
         cal_plot_layout.addLayout(fit_settings_layout)
+        cal_plot_layout.addLayout(model_info_layout)
         cal_plot_layout.addWidget(init_label)
         cal_plot_layout.addLayout(init_params_layout)
         cal_plot_layout.addWidget(fitted_label)

@@ -26,13 +26,14 @@ def poly_with_offset(x, *coeffs):  # x_offset FIRST optional param!
 
 
 
-def _build_model_entry(func, description, parameter_labels, default_initial_parameters):
+def _build_model_entry(func, description, parameter_labels, default_initial_parameters,expression=None):
     """Build a user-facing model definition with metadata for the GUI."""
     return {
         "func": func,
         "description": description,
         "parameter_labels": list(parameter_labels),
         "default_initial_parameters": list(default_initial_parameters),
+        "expression": expression if expression else ""
     }
 
 
@@ -44,8 +45,22 @@ MODELS = {
             "The first value is the x-offset, and the remaining coefficients are "
             "used as inverse powers of x-x_offset."
         ),
-        ["x_offset", "c1", "c2", "c3", "c4", "c5"],
+        ["x_offset", "c0", "c1", "c2", "c3", "c4"],
         [0,0,0,0,0,0],
+        expression = (
+            "<span style='font-size: 12pt;'>f(x) &nbsp;=&nbsp; </span>"
+            "<span style='font-size: 16pt;'>∑"
+            "<sub>k=0</sub><sup>n−1</sup>"
+            "</span>"
+            "&nbsp;"
+            "<span style='font-size: 12pt;'>"
+            "c<sub>k</sub>"
+            "</span>"
+            "&nbsp;/&nbsp;"
+            "<span style='font-size: 12pt;'>"
+            "(x − x<sub>offset</sub>)<sup>k</sup>"
+            "</span>"
+        )
     )
 }
 
