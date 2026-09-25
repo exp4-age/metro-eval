@@ -342,6 +342,7 @@ class CalibrationEditor(QMainWindow):
         # Fitted parameters (read-only)
         fitted_params_layout = QHBoxLayout()
 
+        number_of_init_parameters = 6
         self.fitted_params_edits = {}
         for i in range(number_of_init_parameters):
             edit = QLineEdit()
