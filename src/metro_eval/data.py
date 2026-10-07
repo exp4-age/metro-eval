@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, InitVar
+from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
+import json
 import h5py
 import numpy as np
+import polars as pl
 
 from typing import TYPE_CHECKING
 
@@ -15,9 +17,132 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
 __all__ = [
+    "RunTable",
     "MetroRun",
-    "load_runs",
 ]
+
+
+def default_schema() -> dict[str, pl.DataType]:
+    return {
+        "num": pl.Utf8,
+        "start": pl.Float64,
+        "end": pl.Float64,
+        "each": pl.Float64,
+        "time": pl.Int32,
+        "comment": pl.Utf8,
+    }
+
+
+@dataclass
+class RunTable:
+    """Loads or creates a run table with attached
+    metadata and searches for the corresponding run files.
+
+    The run table can be imported from (exported to) a csv
+    file. Additional metadata is imported from (exported to)
+    a json file. Items in the run table may reference
+    objects in the json metadata.
+
+    Searches the given path for metro run files processed
+    by metro2hdf using glob matching looking for ".h5" files
+    starting with 1 to 5 numbers either followed directly by
+    the file extension or "_*.h5".
+
+    .. warning:: In case of multiple files with the same run number
+        only the last found run is kept.
+
+    """
+
+    path: Path = field(default_factory=Path.cwd, repr=False)
+    csv_file: str = field(default="run_table.csv")
+    json_file: str = field(default="metadata.json")
+    beamtime: str = field(default=None)
+    schema: dict = field(default_factory=default_schema, repr=False)
+    runs: dict[str, MetroRun] = field(init=False, repr=False)
+    df: pl.DataFrame = field(init=False, repr=False)
+    md: dict = field(init=False, repr=False)
+
+    def __post_init__(self):
+        self.path = Path(self.path)
+        if not self.path.is_dir():
+            errmsg = f"{self.path} is not a directory"
+            raise ValueError(errmsg)
+
+        # find the hdf5 files
+        self.runs = {}
+        for num, file_path in self.glob_runs(self.path):
+            self.runs[num] = MetroRun(num=num, path=file_path)
+
+        # check if run table and metadata already exists
+        if (self.path / self.csv_file).is_file():
+            self.load_run_table()
+        else:
+            self.df = pl.DataFrame({"num": list(self.runs.keys())})
+        if (self.path / self.json_file).is_file():
+            self.load_metadata()
+        else:
+            self.md = {}
+
+        # try to find the beamtime name if not provided
+        if self.beamtime is None:
+            if "beamtime" in self.md:
+                self.beamtime = self.md["beamtime"]
+            else:
+                path = self.path.resolve()
+                while path != path.parent:
+                    if path.match("[2-9][0-9][0-9][0-9]-[0-1][1-9]*"):
+                        self.beamtime = path.stem
+                        break
+                    path = path.parent
+
+    @staticmethod
+    def glob_runs(path: Path):
+        for num_digits in range(1, 5):
+            pattern1 = "".join(["[0-9]"] * num_digits) + ".h5"
+            pattern2 = "".join(["[0-9]"] * num_digits) + "_*.h5"
+
+            # get matching files
+            matches = list(path.rglob(pattern1)) + list(path.rglob(pattern2))
+
+            if len(matches) == 0:
+                continue
+
+            for match in matches:
+                yield match.name[:num_digits], match
+
+    def load_run_table(self, path: Path | None = None):
+        if path is None:
+            path = self.path / self.csv_file
+
+        if not path.is_file() or path.suffix != ".csv":
+            errmsg = f"Given path {path} is not a csv file"
+            raise FileNotFoundError(errmsg)
+
+        self.df = pl.read_csv(path, schema_overrides=self.schema)
+
+    def save_run_table(self, path: Path | None = None):
+        if path is None:
+            path = self.path / self.csv_file
+
+        self.df.to_csv(path)
+
+    def load_metadata(self, path: Path | None = None):
+        if path is None:
+            path = self.path / self.json_file
+
+        if not path.is_file() or path.suffix != ".json":
+            errmsg = f"Given path {path} is not a json file"
+            raise FileNotFoundError(errmsg)
+
+        with open(path, "r") as f:
+            self.md = json.load(f)
+
+    def save_metadata(self, path: Path | None = None):
+        if path is None:
+            path = self.path / self.json_file
+
+        with open(path, "w") as f:
+            json.dump(self.md, f, indent=2)
 
 
 @dataclass(frozen=True)
@@ -60,68 +185,42 @@ class MetroRun:
 
     """
 
-    run: InitVar[str | Path | tuple[str, Path] | tuple[str, str]]
-    path: Path = field(init=False)
+    num: str = field(default=None)
+    path: Path = field(default=".", repr=False)
 
-    def __post_init__(self, run):
-        if isinstance(run, str):
-            if run.endswith(".h5"):
-                # convert path str to Path
-                run = Path(run)
-            else:
-                # convert run number to (num, dir) tuple assuming
-                # dir to be the current working directory
-                run = (run, Path.cwd())
+    def __post_init__(self):
+        if not isinstance(self.path, (Path, str)):
+            errmsg = f"Expected Path or str, got {type(self.path)}"
+            raise TypeError(errmsg)
 
-        # find the hdf5 file either directly or by glob'ing using
-        # a comnbination of run number and directory and store
-        # the path for future access
-        if isinstance(run, Path):
-            if run.suffix != ".h5" or not run.is_file():
-                errmsg = f"File {run} is not an hdf5 file"
+        path = Path(self.path)
+        if path.is_file() and path.suffix == ".h5":
+            object.__setattr__(self, "path", path.resolve())
+            num = path.stem.split("_")[0]
+            if self.num is None:
+                object.__setattr__(self, "num", num)
+            elif self.num != num:
+                errmsg = f"Filepath {path} does not match run number {num}"
                 raise ValueError(errmsg)
-
-            object.__setattr__(self, "path", run.resolve())
-
-        elif isinstance(run, tuple):
-            # check tuple length and types
-            if len(run) != 2:
-                errmsg = f"Run tuple must have 2 elements, got {len(run)}"
-                raise ValueError(errmsg)
-
-            if not isinstance(run[0], str):
-                errmsg = (
-                    "First element of run tuple must be a string, "
-                    f"got {type(run[0])}"
-                )
-                raise ValueError(errmsg)
-
-            if not isinstance(run[1], (str, Path)):
-                errmsg = (
-                    "Second element of run tuple must be a string or "
-                    f"Path, got {type(run[1])}"
-                )
-                raise ValueError(errmsg)
-
+        elif path.is_dir() and self.num is not None:
             # glob for run number matches if short name does not exist
-            match = [Path(run[1]) / f"{run[0]}.h5"]
+            match = [path / f"{self.num}.h5"]
             if not match[0].is_file():
-                match = list(Path(run[1]).glob(f"{run[0]}_*.h5"))
+                match = list(path.glob(f"{self.num}_*.h5"))
 
             if len(match) == 0:
-                errmsg = f"Could not find measurement {run[0]} in {run[1]}"
+                errmsg = f"Could not find measurement {self.num} in {path}"
                 raise FileNotFoundError(errmsg)
 
             if len(match) > 1:
                 errmsg = (
-                    f"Found multiple measurements with {run[0]} in {run[1]}"
+                    f"Found multiple measurements with {self.num} in {path}"
                 )
                 raise FileNotFoundError(errmsg)
 
             object.__setattr__(self, "path", match[0].resolve())
-
         else:
-            errmsg = f"Invalid run specification: {run}"
+            errmsg = f"Invalid run: num={self.num}, path={path}"
             raise ValueError(errmsg)
 
     def list_scans(self) -> list[int]:
@@ -291,47 +390,6 @@ class MetroRun:
             for step_val in self._steps(h5f, scan_idx):
                 reader = partial(read_dset, h5f[str(scan_idx)][step_val])
                 yield step_val, reader
-
-
-def glob_runs(path: Path):
-    for num_digits in range(1, 5):
-        pattern1 = "".join(["[0-9]"] * num_digits) + ".h5"
-        pattern2 = "".join(["[0-9]"] * num_digits) + "_*.h5"
-
-        # get matching files
-        matches = list(path.glob(pattern1)) + list(path.glob(pattern2))
-
-        if len(matches) == 0:
-            continue
-
-        for match in matches:
-            yield match.name[:num_digits], match
-
-
-def load_runs(path: str | Path | None = None) -> dict[str, MetroRun]:
-    """Search the given directory for metro run files processed
-    by metro2hdf using glob matching.
-
-    Looks for ".h5" files starting with 1 to 5 numbers either
-    followed directly by the file extension or "_*.h5".
-
-    .. warning:: In case of multiple files with the same run number
-        only the last found run is kept.
-
-    Parameters
-    ----------
-    path: str or Path, optional
-        Path to the directory to search in. Defaults to the
-        current working directory.
-
-    """
-    path = Path.cwd() if path is None else Path(path)
-
-    run_dict = {}
-    for num, file_path in glob_runs(path):
-        run_dict[num] = MetroRun(file_path)
-
-    return run_dict
 
 
 def read_dset(h5g: h5py.Group, key: str):
