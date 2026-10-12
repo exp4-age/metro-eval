@@ -8,13 +8,13 @@ from dataclasses import dataclass
 _VALID_KEY_PATTERN = re.compile(
     r"^"
     r"(?:"
-    r"(?:[1-9]?E{1,4})"
+    r"(?:[0-9]?E{1,4})"
     r"|"
-    r"(?:[1-9]?P{1,2})"
+    r"(?:[0-9]?P{1,2})"
     r"|"
     r"(?:E{1,2}P)"
     r"|"
-    r"(?:[1-9]E[1-9]P{1,2})"
+    r"(?:[0-9]E[0-9]P{1,2})"
     r")"
     r"$"
 )
