@@ -41,10 +41,18 @@ jobs:
     - uses: actions/setup-python@v6
       with:
         python-version: ${{ matrix.python-version }}
+
+    - name: Install system dependencies
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libegl1 libgl1
+
     - name: Install package
       env:
         PURE_PYTHON: ${{ matrix.build-mode == 'pure-python' && '1' || '0' }}
       run: uv pip install --system . pytest
+      
     - name: Run tests
       env:
         PURE_PYTHON: ${{ matrix.build-mode == 'pure-python' && '1' || '0' }}
