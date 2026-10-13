@@ -1,4 +1,4 @@
-from metro_eval.coinc.gui import CoInspect
+from metro_eval.coinc.coinspect import CoInspect
 
 
 def test_ep_number_from_string_handles_common_keys():
