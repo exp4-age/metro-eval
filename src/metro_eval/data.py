@@ -54,8 +54,8 @@ class RunTable:
     """
 
     path: Path = field(default_factory=Path.cwd, repr=False)
-    csv_file: str = field(default="run_table.csv")
-    json_file: str = field(default="metadata.json")
+    csv: Path = field(default="run_table.csv")
+    json: Path = field(default="metadata.json")
     beamtime: str = field(default=None)
     schema: dict = field(default_factory=default_schema, repr=False)
     runs: dict[str, MetroRun] = field(init=False, repr=False)
@@ -74,13 +74,23 @@ class RunTable:
             self.runs[num] = MetroRun(num=num, path=file_path)
 
         # check if run table and metadata already exists
-        if (self.path / self.csv_file).is_file():
+        if (self.path / self.csv).is_file():
+            self.csv = self.path / self.csv
+            self.load_run_table()
+        elif Path(self.csv).is_file():
+            self.csv = Path(self.csv)
             self.load_run_table()
         else:
+            self.csv = self.path / self.csv
             self.df = pl.DataFrame({"num": list(self.runs.keys())})
-        if (self.path / self.json_file).is_file():
+        if (self.path / self.json).is_file():
+            self.json = self.path / self.json
+            self.load_metadata()
+        elif Path(self.json).is_file():
+            self.json = Path(self.json)
             self.load_metadata()
         else:
+            self.json = self.path / self.json
             self.md = {}
 
         # try to find the beamtime name if not provided
@@ -112,23 +122,25 @@ class RunTable:
 
     def load_run_table(self, path: Path | None = None):
         if path is None:
-            path = self.path / self.csv_file
+            path = self.csv
 
         if not path.is_file() or path.suffix != ".csv":
             errmsg = f"Given path {path} is not a csv file"
             raise FileNotFoundError(errmsg)
 
         self.df = pl.read_csv(path, schema_overrides=self.schema)
+        self.csv = path
 
     def save_run_table(self, path: Path | None = None):
         if path is None:
-            path = self.path / self.csv_file
+            path = self.csv
 
-        self.df.to_csv(path)
+        self.df.write_csv(path)
+        self.csv = path
 
     def load_metadata(self, path: Path | None = None):
         if path is None:
-            path = self.path / self.json_file
+            path = self.json
 
         if not path.is_file() or path.suffix != ".json":
             errmsg = f"Given path {path} is not a json file"
@@ -137,12 +149,16 @@ class RunTable:
         with open(path, "r") as f:
             self.md = json.load(f)
 
+        self.json = path
+
     def save_metadata(self, path: Path | None = None):
         if path is None:
-            path = self.path / self.json_file
+            path = self.json
 
         with open(path, "w") as f:
             json.dump(self.md, f, indent=2)
+
+        self.json = path
 
 
 @dataclass(frozen=True)
