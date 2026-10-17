@@ -5,10 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
-import json
 import h5py
 import numpy as np
-import polars as pl
+from astropy.table import Row, Table, TableAttribute
 
 from typing import TYPE_CHECKING
 
@@ -17,187 +16,100 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
 __all__ = [
-    "RunTable",
+    "MetroData",
     "MetroRun",
+    "RunTable",
 ]
 
 
-def default_schema() -> dict[str, pl.DataType]:
-    return {
-        "num": pl.Utf8,
-        "start": pl.Float64,
-        "end": pl.Float64,
-        "each": pl.Float64,
-        "time": pl.Int32,
-        "comment": pl.Utf8,
-    }
+class MetroRun(Row):
+    """Representation of a row in a RunTable object.
 
-
-@dataclass
-class RunTable:
-    """Loads or creates a run table with attached
-    metadata and searches for the corresponding run files.
-
-    The run table can be imported from (exported to) a csv
-    file. Additional metadata is imported from (exported to)
-    a json file. Items in the run table may reference
-    objects in the json metadata.
-
-    Searches the given path for metro run files processed
-    by metro2hdf using glob matching looking for ".h5" files
-    starting with 1 to 5 numbers either followed directly by
-    the file extension or "_*.h5".
-
-    .. warning:: In case of multiple files with the same run number
-        only the last found run is kept.
+    A MetroRun object is returned when a RunTable object is indexed
+    with an integer or when iterating over a table.
 
     """
 
-    path: Path = field(default_factory=Path.cwd, repr=False)
-    csv: Path = field(default="run_table.csv")
-    json: Path = field(default="metadata.json")
-    beamtime: str = field(default=None)
-    schema: dict = field(default_factory=default_schema, repr=False)
-    runs: dict[str, MetroRun] = field(init=False, repr=False)
-    df: pl.DataFrame = field(init=False, repr=False)
-    md: dict = field(init=False, repr=False)
+    @property
+    def data(self):
+        key = self["num"]
+        return self._table._data.get(key)
 
-    def __post_init__(self):
-        self.path = Path(self.path)
-        if not self.path.is_dir():
-            errmsg = f"{self.path} is not a directory"
-            raise ValueError(errmsg)
+    @data.setter
+    def data(self, obj):
+        key = self["num"]
+        self._table._data[key] = obj
 
-        # find the hdf5 files
-        self.runs = {}
-        for num, file_path in self.glob_runs(self.path):
-            self.runs[num] = MetroRun(num=num, path=file_path)
+    @data.deleter
+    def data(self):
+        key = self["num"]
+        self._table._data.pop(key, None)
 
-        # check if run table and metadata already exists
-        if (self.path / self.csv).is_file():
-            self.csv = self.path / self.csv
-            self.load_run_table()
-        elif Path(self.csv).is_file():
-            self.csv = Path(self.csv)
-            self.load_run_table()
+    def get_meta(self, key, default=None, /):
+        if key in self._table.columns and self[key] in self._table[key].meta:
+            return self._table[key].meta[self[key]]
         else:
-            self.csv = self.path / self.csv
-            self.df = pl.DataFrame({"num": list(self.runs.keys())})
-        if (self.path / self.json).is_file():
-            self.json = self.path / self.json
-            self.load_metadata()
-        elif Path(self.json).is_file():
-            self.json = Path(self.json)
-            self.load_metadata()
-        else:
-            self.json = self.path / self.json
-            self.md = {}
+            return default
 
-        # try to find the beamtime name if not provided
-        if self.beamtime is None:
-            if "beamtime" in self.md:
-                self.beamtime = self.md["beamtime"]
-            else:
-                path = self.path.resolve()
-                while path != path.parent:
-                    if path.match("[2-9][0-9][0-9][0-9]-[0-1][1-9]*"):
-                        self.beamtime = path.stem
-                        break
-                    path = path.parent
 
-    @staticmethod
-    def glob_runs(path: Path):
-        for num_digits in range(1, 5):
-            pattern1 = "".join(["[0-9]"] * num_digits) + ".h5"
-            pattern2 = "".join(["[0-9]"] * num_digits) + "_*.h5"
+class RunTable(Table):
+    """Metro run metadata with optionally attached data loading
+    interface.
 
-            # get matching files
-            matches = list(path.rglob(pattern1)) + list(path.rglob(pattern2))
+    Examples
+    --------
+    >>> from metro_eval.data import RunTable
+    >>> rt = RunTable.read("path/to/run_table.ecsv", format="ecsv")
+    >>> rt.attach_data("path/to/data_dir")
 
-            if len(matches) == 0:
-                continue
+    """
+    # a Row object is returned when a Table object is indexed with an
+    # integer or when iterating over a table
+    Row = MetroRun
 
-            for match in matches:
-                yield match.name[:num_digits], match
+    # default metadata attributes
+    year = TableAttribute(default="YYYY")
+    month = TableAttribute(default="MM")
+    facility = TableAttribute(default="Facility")
+    beamline = TableAttribute(default="Beamline")
+    topic = TableAttribute(default="Topic")
+    PI = TableAttribute(default="P. Investigator")
+    personnel = TableAttribute(default=[])
+    experiment = TableAttribute(default="SETUP")
 
-    def load_run_table(self, path: Path | None = None):
-        if path is None:
-            path = self.csv
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._data = {}
 
-        if not path.is_file() or path.suffix != ".csv":
-            errmsg = f"Given path {path} is not a csv file"
-            raise FileNotFoundError(errmsg)
+    def attach_data(self, data_dir: str | Path):
+        if "num" not in self.colnames:
+            errmsg = "Attaching data requires a 'num' column"
+            raise KeyError(errmsg)
 
-        self.df = pl.read_csv(path, schema_overrides=self.schema)
-        self.csv = path
+        path = Path(data_dir)
+        if not path.is_dir():
+            errmsg = f"{data_dir} is not a directory"
+            raise NotADirectoryError(errmsg)
 
-    def save_run_table(self, path: Path | None = None):
-        if path is None:
-            path = self.csv
-
-        self.df.write_csv(path)
-        self.csv = path
-
-    def load_metadata(self, path: Path | None = None):
-        if path is None:
-            path = self.json
-
-        if not path.is_file() or path.suffix != ".json":
-            errmsg = f"Given path {path} is not a json file"
-            raise FileNotFoundError(errmsg)
-
-        with open(path, "r") as f:
-            self.md = json.load(f)
-
-        self.json = path
-
-    def save_metadata(self, path: Path | None = None):
-        if path is None:
-            path = self.json
-
-        with open(path, "w") as f:
-            json.dump(self.md, f, indent=2)
-
-        self.json = path
+        for num, in self.iterrows("num"):
+            for match in path.rglob(f"{num}*.h5"):
+                self._data[num] = MetroData(num=num, path=match)
+                break  # attach the first match
 
 
 @dataclass(frozen=True)
-class MetroRun:
+class MetroData:
     """Load metro data from an hdf5 file created by metro2hdf.
 
-    Upon initialization, the file is scanned to determine the available
-    channels, scans, and steps.
-    Actual data is only read and loaded into memory when requested by
+    Data is only read and loaded into memory when requested by
     calling `__call__` or `read_steps`.
-
-    .. warning:: The scan does not guarantee that all combinations of
-        channels, scans, and steps are present in the file (e.g. in
-        case of missing data or empty coincidence categories).
-
-    .. note:: glob'ing for the hdf5 file with the run number will fail
-        if more than one file with the same run number is present in
-        the directory.
-
-    Parameters
-    ----------
-    run : str | Path | tuple[str, Path] | tuple[str, str]
-        The hdf5 file containing the metro data can be specified with:
-        - a string or Path pointing directly to the hdf5 file
-        - a tuple of (num, dir) where num is the measurement number and
-          dir is the directory containing the hdf5 file. The file is
-          expected to be named {num}_*.h5.
-        - a string num interpreted as a measurement number which
-          is searched for in the current working directory.
 
     Attributes
     ----------
+    num : str
+        Run number
     path : Path
         Path to the hdf5 file containing the metro data
-    scans : list[str]
-        Scans in the hdf5 file with names "0", "1", etc.
-    steps : list[str]
-        Steps within a scan with the value of the scan variable
-        as the name (typically "0.0" for single step runs)
 
     """
 
@@ -411,7 +323,7 @@ class MetroRun:
 def read_dset(h5g: h5py.Group, key: str):
     if key not in h5g:
         errmsg = f"Dataset {key} not found"
-        raise ValueError(errmsg)
+        raise KeyError(errmsg)
 
     # TODO: hdf5 loads the data in row-major order ("C"), but for
     # most types of data analysis a column-major order would

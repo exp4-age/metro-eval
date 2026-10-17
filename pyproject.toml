@@ -20,6 +20,7 @@ classifiers = [
     "Intended Audience :: Science/Research",
 ]
 dependencies = [
+    "astropy>=8.0.2",
     "h5py>=3.13.0",
     "numpy>=1.21",
     "pyqtgraph>=0.14.0",
