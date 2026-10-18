@@ -28,7 +28,7 @@ class PositionAnode:
 
     Parameters
     ----------
-    angle: int or float
+    rotation: int or float
         Rotation of detector.
     scale: [float, float]
         scale = (scale_x, scale_y)
@@ -37,12 +37,13 @@ class PositionAnode:
 
     """
 
-    angle: int | float
+    rotation: int | float
     scale: tuple[float, float]
     offset: tuple[float, float]
+    roi: tuple[tuple[float, float], tuple[float, float]] | None = None
 
     def __post_init__(self) -> None:
-        t = np.deg2rad(self.angle, dtype=np.float64)
+        t = np.deg2rad(self.rotation, dtype=np.float64)
         st, ct = np.sin(t), np.cos(t)
 
         # Prepare rotation and scaling matrix
@@ -71,7 +72,13 @@ class PositionAnode:
         rows = rows[:, :2] - 0.5
         rows = rows.dot(self.transform_matrix) + self.offset_vector
 
-        return rows
+        if self.roi is not None:
+            x, y = rows[:, 0], rows[:, 1]
+            (xmin, xmax), (ymin, ymax) = self.roi
+            mask = (x > xmin) & (x < xmax) & (y > ymin) & (y < ymax)
+            return rows[mask]
+        else:
+            return rows
 
 
 @dataclass(frozen=True)

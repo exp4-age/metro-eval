@@ -11,8 +11,8 @@ if TYPE_CHECKING:
     from numpy.typing import ArrayLike, NDArray
 
 
-def spectrum_processor(
-    det_bin_edges: ArrayLike,
+def processor(
+    bins: int | ArrayLike,
     x_roi: tuple[float, float] = (0, 1),
     y_roi: tuple[float, float] = (0, 1),
 ) -> callable[NDArray, tuple[NDArray, NDArray]]:
@@ -20,7 +20,7 @@ def spectrum_processor(
 
     Parameters
     ----------
-    det_bin_edges : ArrayLike
+    bins : int or ArrayLike
         Detector bin edges with maximum range (0, 1).
     x_roi : tuple[float, float], optional
         Region of interest for the x-axis (detector position).
@@ -33,51 +33,89 @@ def spectrum_processor(
         Function processing and binning pos#pos data.
 
     """
+    det_bin_edges = None
+    if isinstance(bins, int):
+        det_bin_edges = np.arange(bins + 1) / bins
+    else:
+        det_bin_edges = np.asarray(bins)
+
     y_min, y_max = y_roi
 
     x_min, x_max = x_roi
     idx_min = np.searchsorted(det_bin_edges, x_min)
     idx_max = np.searchsorted(det_bin_edges, x_max)
 
-    def spectrum(
-        xy: NDArray, time: int | float = 1
-    ) -> tuple[NDArray, NDArray]:
+    def histogram(xy: ArrayLike) -> NDArray:
         """Histogram the spectrum data.
 
         Parameters
         ----------
-        det_bin_edges : ArrayLike
-            Detector bin edges.
+        xy : ArrayLike
+            Unbinned photon hit positions with shape (n,2).
 
         Returns
         -------
         spec : NDArray
             Binned spectrum.
-        err : NDArray
-            Uncertainties for each bin.
 
         """
         # Apply y roi filter
         xy = xy[(xy[:, 1] > y_min) & (xy[:, 1] < y_max)]
 
         # Histogram the data
-        spec = np.histogram(xy[:, 0], bins=det_bin_edges)[0]
-        spec = np.asarray(spec, dtype=np.float64)
+        hist = np.histogram(xy[:, 0], bins=det_bin_edges)[0]
 
         # Apply x roi filter
-        spec[:idx_min] = 0
-        spec[idx_max - 1 :] = 0
+        hist[:idx_min] = 0
+        hist[idx_max - 1 :] = 0
 
-        # Poisson uncertainties for each bin
-        err = np.sqrt(spec)
+        return hist
 
-        # Normalize to counts / s
-        spec /= time
-        err /= time
+    return histogram
 
-        return spec, err
 
-    return spectrum
+def normalize(
+    spec: ArrayLike | tuple[ArrayLike, ArrayLike],
+    *norm: float | tuple[float, float],
+) -> tuple[NDArray, NDArray]:
+    """Normalize spectrum by a given value with uncertainty.
+
+    Parameters
+    ----------
+    spec : tuple[np.ndarray, np.ndarray]
+        Binned spectrum with uncertainties.
+    norm : tuple[float, float]
+        Normalization value and its uncertainty.
+
+    Returns
+    -------
+    spec
+        Normalized binned spectrum.
+    err
+        Propagated uncertainties.
+
+    """
+    value, rel_variance = 1.0, 0.0
+    for val in norm:
+        if isinstance(val, tuple):
+            value *= val[0]
+            rel_variance += (val[1] / val[0]) ** 2
+        elif isinstance(val, (float, int)):
+            value *= val
+
+    if isinstance(spec, tuple):
+        err = np.asarray(spec[1], dtype=np.float64)
+        spec = np.asarray(spec[0], dtype=np.float64)
+        norm_spec = spec / value
+        spec_rel_variance = np.divide(err, spec, where=spec > 0) ** 2
+        norm_err = norm_spec * np.sqrt(spec_rel_variance + rel_variance)
+        return norm_spec, norm_err
+    else:
+        spec = np.asarray(spec, dtype=np.float64)
+        norm_spec = spec / value
+        spec_rel_variance = np.divide(1, spec, where=spec > 0)
+        norm_err = norm_spec * np.sqrt(spec_rel_variance + rel_variance)
+        return norm_spec, norm_err
 
 
 def sum_spectra(
@@ -112,41 +150,6 @@ def subtract_background(bkg: callable, spec: callable) -> callable:
         err = np.sqrt(err**2 + bkg_err**2)
 
         return hist, err
-
-
-def normalize_spectrum(norm: tuple[float, float], spec: callable) -> callable:
-    """Normalize spectrum by a given value with uncertainty.
-
-    Parameters
-    ----------
-    norm : tuple[float, float]
-        Normalization value and its uncertainty.
-    spec : callable
-        Spectrum processor function to be normalized.
-
-    Returns
-    -------
-    callable
-        Normalized spectrum processor function.
-
-    """
-    norm_val, norm_err = norm
-
-    @wraps(spec)
-    def normalized_spectrum(
-        xy: NDArray, time: int | float = 1
-    ) -> tuple[NDArray, NDArray]:
-        hist, err = spec(xy, time=time)
-
-        # Normalize spectrum
-        err = np.sqrt(
-            (err / norm_val) ** 2 + (hist * norm_err / norm_val**2) ** 2
-        )
-        hist /= norm_val
-
-        return hist, err
-
-    return normalized_spectrum
 
 
 def correct_qeff(qeff: callable, spec: callable) -> callable:

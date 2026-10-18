@@ -80,6 +80,8 @@ class RunTable(Table):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._data = {}
+        if "num" in self.columns:
+            self.add_index("num")
 
     def attach_data(self, data_dir: str | Path):
         if "num" not in self.colnames:
