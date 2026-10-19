@@ -107,13 +107,15 @@ def normalize(
         err = np.asarray(spec[1], dtype=np.float64)
         spec = np.asarray(spec[0], dtype=np.float64)
         norm_spec = spec / value
-        spec_rel_variance = np.divide(err, spec, where=spec > 0) ** 2
-        norm_err = norm_spec * np.sqrt(spec_rel_variance + rel_variance)
+        spec_rel_variance = np.zeros_like(spec)
+        np.divide(err, spec, out=spec_rel_variance, where=spec > 0)
+        norm_err = norm_spec * np.sqrt(spec_rel_variance**2 + rel_variance)
         return norm_spec, norm_err
     else:
         spec = np.asarray(spec, dtype=np.float64)
         norm_spec = spec / value
-        spec_rel_variance = np.divide(1, spec, where=spec > 0)
+        spec_rel_variance = np.zeros_like(spec)
+        np.divide(1.0, spec, out=spec_rel_variance, where=spec > 0)
         norm_err = norm_spec * np.sqrt(spec_rel_variance + rel_variance)
         return norm_spec, norm_err
 
