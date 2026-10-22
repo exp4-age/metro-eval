@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field, replace
 from functools import wraps
 import numpy as np
 
@@ -9,12 +10,40 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from numpy.typing import ArrayLike, NDArray
+    from ..process.anodes import PositionAnode
+
+
+@dataclass
+class Spectrum:
+    data: NDArray[np.float64] = field(repr=False)
+    anode: PositionAnode
+    bins: int | NDArray[np.float64] = field(default=1024)
+    range: tuple[float, float] = field(default=(0.0, 1.0), init=False)
+    roi: tuple[tuple[float, float], tuple[float, float]] | None = None
+    _x_min_idx: int | None = field(default=None, init=False)
+    _x_max_idx: int | None = field(default=None, init=False)
+
+    def __post_init__(self):
+        if not isinstance(self.bins, int):
+            self.bins = np.asarray(self.bins, dtype=np.float64)
+
+        # remove roi from anode so that it can be handled here
+        # to avoid artifacts from the roi not matching the binning
+        if self.anode.roi:
+            if self.roi is None:
+                self.roi = self.anode.roi
+            self.anode = replace(self.anode, roi=None)
+
+    def bin_edges(self):
+        if isinstance(self.bins, int):
+            return np.linspace(*self.range, self.bins + 1)
+        else:
+            return self.bins
 
 
 def processor(
     bins: int | ArrayLike,
-    x_roi: tuple[float, float] = (0, 1),
-    y_roi: tuple[float, float] = (0, 1),
+    anode: PositionAnode,
 ) -> callable[NDArray, tuple[NDArray, NDArray]]:
     """Spectrum processor binning pos#pos data.
 
@@ -30,7 +59,7 @@ def processor(
     Returns
     -------
     callable
-        Function processing and binning pos#pos data.
+        Function processing and binning raw data.
 
     """
     det_bin_edges = None
@@ -41,11 +70,18 @@ def processor(
 
     y_min, y_max = y_roi
 
+    # prepare x roi for application after binning, which is faster
+    # shifts the roi to match bin edges to avoid weird artifacts
     x_min, x_max = x_roi
     idx_min = np.searchsorted(det_bin_edges, x_min)
     idx_max = np.searchsorted(det_bin_edges, x_max)
 
-    def histogram(xy: ArrayLike) -> NDArray:
+    def histogram(
+        data: ArrayLike,
+        rotation: int | float | None = None,
+        x_roi: tuple[float, float] | None = None,
+        y_roi: tuple[float, float] | None = None,
+    ) -> NDArray:
         """Histogram the spectrum data.
 
         Parameters
@@ -59,13 +95,18 @@ def processor(
             Binned spectrum.
 
         """
-        # Apply y roi filter
+        if rotation:
+            xy = replace(anode, rotation=rotation).process(data)
+        else:
+            xy = anode.process(data)
+
+        # apply y roi filter
         xy = xy[(xy[:, 1] > y_min) & (xy[:, 1] < y_max)]
 
-        # Histogram the data
+        # histogram the data
         hist = np.histogram(xy[:, 0], bins=det_bin_edges)[0]
 
-        # Apply x roi filter
+        # apply x roi filter
         hist[:idx_min] = 0
         hist[idx_max - 1 :] = 0
 
