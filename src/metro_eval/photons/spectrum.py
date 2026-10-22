@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from contextlib import contextmanager
 from functools import wraps
 import numpy as np
 
@@ -17,9 +18,11 @@ if TYPE_CHECKING:
 class Spectrum:
     data: NDArray[np.float64] = field(repr=False)
     anode: PositionAnode
-    bins: int | NDArray[np.float64] = field(default=1024)
+    bins: int | NDArray[np.float64] = 1024
     range: tuple[float, float] = field(default=(0.0, 1.0), init=False)
     roi: tuple[tuple[float, float], tuple[float, float]] | None = None
+    time: int | None = None
+    norm: list[tuple[float, float]] | None = None
     _x_min_idx: int | None = field(default=None, init=False)
     _x_max_idx: int | None = field(default=None, init=False)
 
@@ -34,131 +37,65 @@ class Spectrum:
                 self.roi = self.anode.roi
             self.anode = replace(self.anode, roi=None)
 
+        if self.roi:
+            x_min, x_max = self.roi[0]
+            if isinstance(self.bins, int):
+                dx = (self.range[1] - self.range[0]) / self.bins
+                self._x_min_idx = int(np.ceil((x_min - range[0]) / dx))
+                self._x_max_idx = int(np.ceil((x_max - range[0]) / dx))
+            else:
+                self._x_min_idx = np.searchsorted(self.bins, x_min)
+                self._x_max_idx = np.searchsorted(self.bins, x_max)
+
     def bin_edges(self):
         if isinstance(self.bins, int):
             return np.linspace(*self.range, self.bins + 1)
         else:
             return self.bins
 
+    @contextmanager
+    def rotate(self, angle: float):
+        anode = self.anode
+        try:
+            self.anode = replace(anode, rotation=anode.rotation + angle)
+            yield None
+        finally:
+            self.anode = anode
 
-def processor(
-    bins: int | ArrayLike,
-    anode: PositionAnode,
-) -> callable[NDArray, tuple[NDArray, NDArray]]:
-    """Spectrum processor binning pos#pos data.
-
-    Parameters
-    ----------
-    bins : int or ArrayLike
-        Detector bin edges with maximum range (0, 1).
-    x_roi : tuple[float, float], optional
-        Region of interest for the x-axis (detector position).
-    y_roi : tuple[float, float], optional
-        Region of interest for the y-axis (detector position).
-
-    Returns
-    -------
-    callable
-        Function processing and binning raw data.
-
-    """
-    det_bin_edges = None
-    if isinstance(bins, int):
-        det_bin_edges = np.arange(bins + 1) / bins
-    else:
-        det_bin_edges = np.asarray(bins)
-
-    y_min, y_max = y_roi
-
-    # prepare x roi for application after binning, which is faster
-    # shifts the roi to match bin edges to avoid weird artifacts
-    x_min, x_max = x_roi
-    idx_min = np.searchsorted(det_bin_edges, x_min)
-    idx_max = np.searchsorted(det_bin_edges, x_max)
-
-    def histogram(
-        data: ArrayLike,
-        rotation: int | float | None = None,
-        x_roi: tuple[float, float] | None = None,
-        y_roi: tuple[float, float] | None = None,
-    ) -> NDArray:
-        """Histogram the spectrum data.
-
-        Parameters
-        ----------
-        xy : ArrayLike
-            Unbinned photon hit positions with shape (n,2).
-
-        Returns
-        -------
-        spec : NDArray
-            Binned spectrum.
-
-        """
-        if rotation:
-            xy = replace(anode, rotation=rotation).process(data)
-        else:
-            xy = anode.process(data)
+    def __call__(self):
+        xy = self.anode.process(self.data)
 
         # apply y roi filter
+        y_min, y_max = self.roi[1]
         xy = xy[(xy[:, 1] > y_min) & (xy[:, 1] < y_max)]
 
         # histogram the data
-        hist = np.histogram(xy[:, 0], bins=det_bin_edges)[0]
+        hist = np.histogram(xy[:, 0], bins=self.bins, range=self.range)[0]
+        hist = np.asarray(hist, dtype=np.float64)
 
         # apply x roi filter
-        hist[:idx_min] = 0
-        hist[idx_max - 1 :] = 0
+        hist[:self._x_min_idx] = 0
+        hist[self._x_max_idx:] = 0
 
-        return hist
+        err = None
+        if self.norm:
+            norm_value, rel_variance = 1.0, 0.0
+            for val, err in self.norm:
+                norm_value *= val
+                rel_variance += (err / val) ** 2
 
-    return histogram
+            spec_rel_variance = np.zeros_like(hist)
+            np.divide(1.0, hist, out=spec_rel_variance, where=hist > 0)
+            hist = hist / norm_value
+            err = hist * np.sqrt(spec_rel_variance + rel_variance)
+        else:
+            err = np.sqrt(hist)
 
+        if self.time:
+            hist = hist / self.time
+            err = err / self.time
 
-def normalize(
-    spec: ArrayLike | tuple[ArrayLike, ArrayLike],
-    *norm: float | tuple[float, float],
-) -> tuple[NDArray, NDArray]:
-    """Normalize spectrum by a given value with uncertainty.
-
-    Parameters
-    ----------
-    spec : tuple[np.ndarray, np.ndarray]
-        Binned spectrum with uncertainties.
-    norm : tuple[float, float]
-        Normalization value and its uncertainty.
-
-    Returns
-    -------
-    spec
-        Normalized binned spectrum.
-    err
-        Propagated uncertainties.
-
-    """
-    value, rel_variance = 1.0, 0.0
-    for val in norm:
-        if isinstance(val, tuple):
-            value *= val[0]
-            rel_variance += (val[1] / val[0]) ** 2
-        elif isinstance(val, (float, int)):
-            value *= val
-
-    if isinstance(spec, tuple):
-        err = np.asarray(spec[1], dtype=np.float64)
-        spec = np.asarray(spec[0], dtype=np.float64)
-        norm_spec = spec / value
-        spec_rel_variance = np.zeros_like(spec)
-        np.divide(err, spec, out=spec_rel_variance, where=spec > 0)
-        norm_err = norm_spec * np.sqrt(spec_rel_variance**2 + rel_variance)
-        return norm_spec, norm_err
-    else:
-        spec = np.asarray(spec, dtype=np.float64)
-        norm_spec = spec / value
-        spec_rel_variance = np.zeros_like(spec)
-        np.divide(1.0, spec, out=spec_rel_variance, where=spec > 0)
-        norm_err = norm_spec * np.sqrt(spec_rel_variance + rel_variance)
-        return norm_spec, norm_err
+        return hist, err
 
 
 def sum_spectra(
