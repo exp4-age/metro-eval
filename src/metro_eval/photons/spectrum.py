@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from copy import copy
 from contextlib import contextmanager
 from functools import wraps
 import numpy as np
@@ -20,11 +21,13 @@ class Spectrum:
     anode: PositionAnode
     bins: int | NDArray[np.float64] = 1024
     range: tuple[float, float] = field(default=(0.0, 1.0), init=False)
-    roi: tuple[tuple[float, float], tuple[float, float]] | None = None
     time: int | None = None
     norm: list[tuple[float, float]] | None = None
-    _x_min_idx: int | None = field(default=None, init=False)
-    _x_max_idx: int | None = field(default=None, init=False)
+    _x_min_idx: int | None = field(default=None, init=False, repr=False)
+    _x_max_idx: int | None = field(default=None, init=False, repr=False)
+    _y_min: int | None = field(default=None, init=False, repr=False)
+    _y_max: int | None = field(default=None, init=False, repr=False)
+    _cache: tuple | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self):
         if not isinstance(self.bins, int):
@@ -33,19 +36,24 @@ class Spectrum:
         # remove roi from anode so that it can be handled here
         # to avoid artifacts from the roi not matching the binning
         if self.anode.roi:
-            if self.roi is None:
-                self.roi = self.anode.roi
+            (x_min, x_max), (self._y_min, self._y_max) = self.anode.roi
+            self._set_x_roi(x_min, x_max)
             self.anode = replace(self.anode, roi=None)
 
-        if self.roi:
-            x_min, x_max = self.roi[0]
-            if isinstance(self.bins, int):
-                dx = (self.range[1] - self.range[0]) / self.bins
-                self._x_min_idx = int(np.ceil((x_min - range[0]) / dx))
-                self._x_max_idx = int(np.ceil((x_max - range[0]) / dx))
-            else:
-                self._x_min_idx = np.searchsorted(self.bins, x_min)
-                self._x_max_idx = np.searchsorted(self.bins, x_max)
+    def _set_x_roi(self, x_min: float, x_max: float):
+        if isinstance(self.bins, int):
+            dx = (self.range[1] - self.range[0]) / self.bins
+            self._x_min_idx = int(np.ceil((x_min - self.range[0]) / dx))
+            self._x_max_idx = int(np.ceil((x_max - self.range[0]) / dx))
+        else:
+            self._x_min_idx = np.searchsorted(self.bins, x_min)
+            self._x_max_idx = np.searchsorted(self.bins, x_max)
+
+    def with_data(self, data: NDArray[np.float64], *norm) -> Spectrum:
+        spec = copy(self)
+        spec.data = data
+        spec.norm = norm
+        return spec
 
     def bin_edges(self):
         if isinstance(self.bins, int):
@@ -56,26 +64,57 @@ class Spectrum:
     @contextmanager
     def rotate(self, angle: float):
         anode = self.anode
+        cache = self._cache
         try:
             self.anode = replace(anode, rotation=anode.rotation + angle)
+            self._cache = None
             yield None
         finally:
             self.anode = anode
+            self._cache = cache
+
+    @contextmanager
+    def roi(
+        self,
+        x: tuple[float, float] | None = None,
+        y: tuple[float, float] | None = None,
+    ):
+        x_min_idx, x_max_idx = self._x_min_idx, self._x_max_idx
+        y_min, y_max = self._y_min, self._y_max
+        cache = self._cache
+        try:
+            if x:
+                self._set_x_roi(*x)
+            if y:
+                self._y_min, self._y_max = y
+            self._cache = None
+            yield None
+        finally:
+            self._x_min_idx, self._x_max_idx = x_min_idx, x_max_idx
+            self._y_min, self._y_max = y_min, y_max
+            self._cache = cache
 
     def __call__(self):
+        if self._cache:
+            return self._cache
+
         xy = self.anode.process(self.data)
 
         # apply y roi filter
-        y_min, y_max = self.roi[1]
-        xy = xy[(xy[:, 1] > y_min) & (xy[:, 1] < y_max)]
+        if self._y_min:
+            xy = xy[xy[:, 1] > self._y_min]
+        if self._y_max:
+            xy = xy[xy[:, 1] < self._y_max]
 
         # histogram the data
         hist = np.histogram(xy[:, 0], bins=self.bins, range=self.range)[0]
         hist = np.asarray(hist, dtype=np.float64)
 
         # apply x roi filter
-        hist[:self._x_min_idx] = 0
-        hist[self._x_max_idx:] = 0
+        if self._x_min_idx:
+            hist[:self._x_min_idx] = 0
+        if self._x_max_idx:
+            hist[self._x_max_idx:] = 0
 
         err = None
         if self.norm:
@@ -94,6 +133,8 @@ class Spectrum:
         if self.time:
             hist = hist / self.time
             err = err / self.time
+
+        self._cache = hist, err
 
         return hist, err
 
